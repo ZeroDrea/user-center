@@ -96,8 +96,8 @@ private:
             : func(std::forward<F>(f)), policy(p) {}
     };
 
-    void WorkerLoop() noexcept;
-    void ExecuteTask(Task&& task) noexcept;
+    void WorkerLoop();
+    void ExecuteTask(Task&& task);
     void Cleanup() noexcept;
 
 private:

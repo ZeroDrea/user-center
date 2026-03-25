@@ -19,7 +19,7 @@ ThreadPool::ThreadPool(const Config& config)
     }
 }
 
-void ThreadPool::WorkerLoop() noexcept {
+void ThreadPool::WorkerLoop() {
     std::cout << "工作线程id: " << std::this_thread::get_id() << "创建成功" << std::endl;
     while (true) {
         std::optional<Task> task;
@@ -69,24 +69,14 @@ void ThreadPool::Cleanup() noexcept {
 
 }
 
-void ThreadPool::ExecuteTask(Task&& task) noexcept {
-    try {
-        if (task.policy == LaunchPolicy::kDeferred) {
-            // 延迟执行策略：在等待 future 时才执行
-            // 这里直接执行，实际上由 submit 中的 packaged_task 控制
-            task.func();
-        } else {
+void ThreadPool::ExecuteTask(Task&& task) {
+    if (task.policy == LaunchPolicy::kDeferred) {
+        // 延迟执行策略：在等待 future 时才执行
+        // 这里直接执行，实际上由 submit 中的 packaged_task 控制
+        task.func();
+    } else {
             // 异步执行策略：立即执行
-            task.func();
-        }
-    } catch (const std::exception& e) {
-
-        // 记录异常但不传播，避免工作线程崩溃
-        // 添加日志
-        std::cerr << "Task execution failed: " << e.what() << std::endl;
-    } catch (...) {
-        // 捕获所有异常，确保工作线程不会崩溃
-        std::cerr << "Task execution failed with unknown exception" << std::endl;
+        task.func();
     }
 }
 
