@@ -39,15 +39,24 @@ enum class LaunchPolicy {
 class ThreadPool {
 public:
     struct Config {
-        size_t thread_count = 0;
-        size_t max_queue_size = 0;
-        LaunchPolicy default_policy = LaunchPolicy::kAsync;  // 默认执行策略
-        Config() = default;
-        explicit Config(size_t threads) : thread_count(threads) {}
-        Config(size_t threads, size_t max_queue) : thread_count(threads), max_queue_size(max_queue) {}
+        size_t thread_count;
+        size_t max_queue_size;
+        LaunchPolicy default_policy;  // 默认执行策略
+        Config() 
+            : thread_count(0)
+            , max_queue_size(0)
+            , default_policy(LaunchPolicy::kAsync) {}
+        explicit Config(size_t threads) 
+            : thread_count(threads)
+            , max_queue_size(0)
+            , default_policy(LaunchPolicy::kAsync) {}
+        Config(size_t threads, size_t max_queue) 
+            : thread_count(threads)
+            , max_queue_size(max_queue)
+            , default_policy(LaunchPolicy::kAsync) {}
     };
-
-    explicit ThreadPool(const Config& config = Config());
+    ThreadPool() : ThreadPool(Config()) {}
+    explicit ThreadPool(const Config& config);
     ~ThreadPool();
 
     // 禁止拷贝和移动
@@ -87,8 +96,8 @@ private:
             : func(std::forward<F>(f)), policy(p) {}
     };
 
-    void WorkerLoop();
-    void ExecuteTask(Task&& task);
+    void WorkerLoop() noexcept;
+    void ExecuteTask(Task&& task) noexcept;
     void Cleanup() noexcept;
 
 private:
@@ -115,8 +124,8 @@ auto ThreadPool::Submit(LaunchPolicy policy, F&& f, Args&&... args)
     -> std::future<typename std::invoke_result_t<F, Args...>> {
     using ReturnType = typename std::invoke_result_t<F, Args...>;
 
-    auto packaged_task = std::make_shared<std::packaged_task<ReturnType>>(
-        std::bind(std::forward<F>(f), std::forward<Args>(args)...);
+    auto packaged_task = std::make_shared<std::packaged_task<ReturnType()>>(
+        std::bind(std::forward<F>(f), std::forward<Args>(args)...)
     );
     auto res = packaged_task->get_future();
 

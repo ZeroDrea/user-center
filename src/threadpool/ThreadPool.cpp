@@ -1,7 +1,8 @@
 #include <threadpool/ThreadPool.h>
 #include <iostream>
 namespace thread_pool {
-ThreadPool::ThreadPool(const Config& config) : config_(config) {
+ThreadPool::ThreadPool(const Config& config) 
+    : config_(config) {
     size_t thread_count = config_.thread_count;
     if (thread_count == 0) {
         thread_count = std::thread::hardware_concurrency();
@@ -45,10 +46,12 @@ void ThreadPool::WorkerLoop() noexcept {
 }
 
 void ThreadPool::Cleanup() noexcept {
+    int cnt = 0;
     {
         std::lock_guard<std::mutex> lck(mutex_);
         stop_ = true;
         std::queue<Task> empty;
+        cnt = tasks_.size();
         swap(tasks_, empty);
 
         cv_.notify_all();
@@ -57,11 +60,12 @@ void ThreadPool::Cleanup() noexcept {
     for (auto& worker : workers_) {
         if (worker.joinable()) {
             worker.join();
-            std::cout << "工作线程id: " << worker.get_id() << "回收成功" << std::endl;
         } else {
             std::cout << "工作线程id: " << worker.get_id() << "回收失败" << std::endl;
         }
+
     }
+    std::cout << "还有cnt: " << cnt << "任务没有完成" << std::endl;
 
 }
 
