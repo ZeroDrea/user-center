@@ -62,7 +62,7 @@ private:
     // 等级转字符串
     const char* level2Str(LogLevel level);
 
-    // 滚动日志文件（按大小/日期）
+    // 滚动日志文件（按大小/日期），调用之前必须持有file_mtx_锁
     void rollFile();
 
 private:

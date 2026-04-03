@@ -4,21 +4,11 @@
 #include <stdarg.h>
 #include <string>
 
-#if 0
-// 单例静态对象
-static AsyncLogger* g_logger = nullptr;
-static std::once_flag g_logger_init_flag;
-
 std::atomic<LogLevel> AsyncLogger::current_level_{DEBUG};
 
-// 单例初始化
-void initLogger() {
-    g_logger = new AsyncLogger();
-}
-
 AsyncLogger& AsyncLogger::getInstance() {
-    std::call_once(g_logger_init_flag, initLogger);
-    return *g_logger;
+    static AsyncLogger instance;
+    return instance;
 }
 
 AsyncLogger::AsyncLogger() :
@@ -67,6 +57,26 @@ const char* AsyncLogger::level2Str(LogLevel level) {
     }
 }
 
+
+void AsyncLogger::rollFile() {
+    if (log_file_.is_open()) {
+        log_file_.close();
+    }
+
+    // 生成带时间戳的日志文件名：前缀_年月日_时分秒.log
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf;
+    localtime_r(&time_t_now, &tm_buf); // POSIX
+    char time_str[32];
+    std::strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
+
+    std::string full_path = log_path_ + "/" + file_name_ + time_str + ".log";
+    std::cout << full_path << std::endl;
+    log_file_.open(full_path, std::ios::app);
+    file_size_ = 0;
+}
+
 void AsyncLogger::log(LogLevel level, const char* file, int line, const char* format, ...) {
     if (!is_running_) {
         return;   // 确保关闭日志系统后不会再有日志写入
@@ -93,7 +103,7 @@ void AsyncLogger::log(LogLevel level, const char* file, int line, const char* fo
     if (msg_len < 0) { // 格式化出错
         msg_len = 0;
     }
-    else if (msg_len >= sizeof(msg_buf)) {
+    else if (msg_len >= (int)sizeof(msg_buf)) {
         msg_len = sizeof(msg_buf) - 1; // 减去'\0'
     }
 
@@ -111,16 +121,24 @@ void AsyncLogger::log(LogLevel level, const char* file, int line, const char* fo
 
     std::lock_guard<std::mutex> lck(mtx_);
     size_t need_len = header_len + msg_len + 1; // +1 是换行符
-    if (current_buffer_->size() + need_len > buffer_size_) {
+    if (need_len > buffer_size_) {  // 单条日志过大需要截断
+        msg_len = buffer_size_ - header_len - 1;
+        if (msg_len < 0) {
+            msg_len = 0;
+        }
+        need_len = buffer_size_;
 
+    }
+    if (current_buffer_->size() + need_len > buffer_size_) {
         if (next_buffer_->empty()) {
             current_buffer_.swap(next_buffer_);
             cv_.notify_one();
         } else {
-            uint64_t dropped = dropped_count_.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (dropped % 10000 == 0) {
-                std::cerr << "AsyncLogger: dropped " << dropped << " logs (buffer full)" << std::endl;
+            dropped_count_.fetch_add(1, std::memory_order_relaxed);
+            if (dropped_count_ % 10000 == 0) {
+                std::cerr << "AsyncLogger: dropped " << dropped_count_ << " logs (buffer full)" << std::endl;
             }
+            return;
         }
     }
 
@@ -139,9 +157,15 @@ void AsyncLogger::writeThreadFunc() {
             // 等待next_buffer_有数据
             cv_.wait_for(lck, std::chrono::milliseconds(flush_interval_), [this] {
                 return !next_buffer_->empty() || !is_running_;
+                return !next_buffer_->empty() || !current_buffer_->empty() || !is_running_;
             });
 
             if (!next_buffer_->empty()) {
+                write_buffer.swap(*next_buffer_);
+            }
+             else if (!current_buffer_->empty()) {  // 走到这个分支时next_buffer_一定为空
+                // 超时且 current_buffer_ 有数据：交换到 next_buffer_ 再取走
+                current_buffer_.swap(next_buffer_);
                 write_buffer.swap(*next_buffer_);
             }
         }
@@ -168,6 +192,7 @@ void AsyncLogger::writeThreadFunc() {
 }
 
 void AsyncLogger::writeWhenExit() { 
+    std::cout << "enter writeWhenExit" << std::endl;
     Buffer final_buf;
     final_buf.reserve(buffer_size_ * 2);
     {
@@ -203,4 +228,3 @@ void AsyncLogger::shutdown() {
         write_thread_->join();
     }
 }
-#endif
