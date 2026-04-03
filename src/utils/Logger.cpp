@@ -3,7 +3,6 @@
 #include <thread>
 #include <stdarg.h>
 
-#if 0
 void AsyncLogger::log(LogLevel level, const char* file, int line, const char* format, ...) {
     // 获取时间
     auto now = std::chrono::system_clock::now();
@@ -56,4 +55,59 @@ void AsyncLogger::log(LogLevel level, const char* file, int line, const char* fo
     current_buffer_->insert(current_buffer_->end(), msg_buf, msg_buf + msg_len);
     current_buffer_->push_back('\n');
 }
-#endif
+
+
+void AsyncLogger::writeThreadFunc() {
+    Buffer write_buffer;
+    write_buffer.reserve(buffer_size_);
+
+    while (is_running_) {
+        {
+            std::unique_lock<std::mutex> lck(mtx_);
+            // 等待next_buffer_有数据
+            cv_.wait_for(lck, std::chrono::milliseconds(3000), [this] {
+                return !next_buffer_->empty() || !is_running_;
+            });
+
+            if (!next_buffer_->empty()) {
+                write_buffer.swap(*next_buffer_);
+            }
+        }
+
+        if (!write_buffer.empty()) {
+            bool need_roll = false;
+            need_roll = write_buffer.size() + file_size_ >= MAX_FILE_SIZE;  
+            if (need_roll) {
+                rollFile();
+            }
+
+            if (log_file_.is_open()) {
+                log_file_.write(write_buffer.data(), write_buffer.size());
+                log_file_.flush();
+                file_size_ += write_buffer.size();
+            } else {
+                // 降级输出到 stderr
+                std::cerr.write(write_buffer.data(), write_buffer.size());
+                std::cerr << std::endl;
+            }
+            write_buffer.clear();
+        }
+    }
+
+    // 退出时刷盘，要获取双缓冲的锁，因为此时可能存在其他线程写日志
+    std::lock_guard<std::mutex> lck(mtx_);
+    if (!next_buffer_->empty()) {
+        if (log_file_.is_open()) {
+            log_file_.write(next_buffer_->data(), next_buffer_->size());
+        }
+        next_buffer_->clear();
+    }
+    if (!current_buffer_->empty()) {
+        if (log_file_.is_open()) {
+            log_file_.write(current_buffer_->data(), current_buffer_->size());
+        }
+    }
+    if (log_file_.is_open()) {
+        log_file_.flush();
+    }
+}
