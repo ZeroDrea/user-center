@@ -2,8 +2,79 @@
 #include <chrono>
 #include <thread>
 #include <stdarg.h>
+#include <string>
+
+#if 0
+// 单例静态对象
+static AsyncLogger* g_logger = nullptr;
+static std::once_flag g_logger_init_flag;
+
+std::atomic<LogLevel> AsyncLogger::current_level_{DEBUG};
+
+// 单例初始化
+void initLogger() {
+    g_logger = new AsyncLogger();
+}
+
+AsyncLogger& AsyncLogger::getInstance() {
+    std::call_once(g_logger_init_flag, initLogger);
+    return *g_logger;
+}
+
+AsyncLogger::AsyncLogger() :
+    is_running_(false),
+    buffer_size_(8 * 1024 * 1024),
+    flush_interval_(3000),
+    file_size_(0) {
+    current_buffer_ = std::make_unique<Buffer>();
+    next_buffer_ = std::make_unique<Buffer>();
+    current_buffer_->reserve(buffer_size_);
+    next_buffer_->reserve(buffer_size_);
+}
+
+AsyncLogger::~AsyncLogger() {
+    shutdown();
+}
+
+// 初始化
+void AsyncLogger::init(const std::string& log_path, const std::string& file_name, size_t buff_size, int flush_interval) {
+    std::lock_guard<std::mutex> lock(file_mtx_);
+    log_path_ = log_path;
+    file_name_ = file_name;
+    buffer_size_ = buff_size;
+    flush_interval_ = flush_interval;
+
+    if (!fs::exists(log_path_)) {
+        fs::create_directories(log_path_);
+    }
+
+    rollFile(); // 打开日志文件
+
+    is_running_ = true;
+    if (write_thread_ == nullptr) {
+        write_thread_ = std::make_unique<std::thread>(&AsyncLogger::writeThreadFunc, this);
+    }
+}
+
+const char* AsyncLogger::level2Str(LogLevel level) {
+    switch (level) {
+        case DEBUG: return "DEBUG";
+        case INFO:  return "INFO";
+        case WARN:  return "WARN";
+        case ERROR: return "ERROR";
+        case FATAL: return "FATAL";
+        default:    return "UNKNOWN";
+    }
+}
 
 void AsyncLogger::log(LogLevel level, const char* file, int line, const char* format, ...) {
+    if (!is_running_) {
+        return;   // 确保关闭日志系统后不会再有日志写入
+    }
+
+    if (level < current_level_.load(std::memory_order_relaxed)) {
+        return;
+    }
     // 获取时间
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -46,8 +117,10 @@ void AsyncLogger::log(LogLevel level, const char* file, int line, const char* fo
             current_buffer_.swap(next_buffer_);
             cv_.notify_one();
         } else {
-            // TODO：两个缓冲区都满了，该怎么做
-            return; // 丢弃？？
+            uint64_t dropped = dropped_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (dropped % 10000 == 0) {
+                std::cerr << "AsyncLogger: dropped " << dropped << " logs (buffer full)" << std::endl;
+            }
         }
     }
 
@@ -60,12 +133,11 @@ void AsyncLogger::log(LogLevel level, const char* file, int line, const char* fo
 void AsyncLogger::writeThreadFunc() {
     Buffer write_buffer;
     write_buffer.reserve(buffer_size_);
-
     while (is_running_) {
         {
             std::unique_lock<std::mutex> lck(mtx_);
             // 等待next_buffer_有数据
-            cv_.wait_for(lck, std::chrono::milliseconds(3000), [this] {
+            cv_.wait_for(lck, std::chrono::milliseconds(flush_interval_), [this] {
                 return !next_buffer_->empty() || !is_running_;
             });
 
@@ -75,39 +147,60 @@ void AsyncLogger::writeThreadFunc() {
         }
 
         if (!write_buffer.empty()) {
-            bool need_roll = false;
-            need_roll = write_buffer.size() + file_size_ >= MAX_FILE_SIZE;  
-            if (need_roll) {
-                rollFile();
-            }
-
-            if (log_file_.is_open()) {
-                log_file_.write(write_buffer.data(), write_buffer.size());
-                log_file_.flush();
-                file_size_ += write_buffer.size();
-            } else {
-                // 降级输出到 stderr
-                std::cerr.write(write_buffer.data(), write_buffer.size());
-                std::cerr << std::endl;
+            {
+                std::lock_guard<std::mutex> lck(file_mtx_);
+                if (file_size_ + write_buffer.size() >= MAX_FILE_SIZE) {
+                    rollFile();
+                }
+                if (log_file_.is_open()) {
+                    log_file_.write(write_buffer.data(), write_buffer.size());
+                    log_file_.flush();
+                    file_size_ += write_buffer.size();
+                } else {
+                    std::cerr.write(write_buffer.data(), write_buffer.size());
+                    std::cerr << std::endl;
+                }
             }
             write_buffer.clear();
         }
     }
+    writeWhenExit();
+}
 
-    // 退出时刷盘，要获取双缓冲的锁，因为此时可能存在其他线程写日志
-    std::lock_guard<std::mutex> lck(mtx_);
-    if (!next_buffer_->empty()) {
-        if (log_file_.is_open()) {
-            log_file_.write(next_buffer_->data(), next_buffer_->size());
+void AsyncLogger::writeWhenExit() { 
+    Buffer final_buf;
+    final_buf.reserve(buffer_size_ * 2);
+    {
+        std::lock_guard<std::mutex> lck(mtx_);
+        if (!next_buffer_->empty()) {
+            final_buf.insert(final_buf.end(), next_buffer_->begin(), next_buffer_->end());
+            next_buffer_->clear();
         }
-        next_buffer_->clear();
-    }
-    if (!current_buffer_->empty()) {
+    
+        if (!current_buffer_->empty()) {
+            final_buf.insert(final_buf.end(), current_buffer_->begin(), current_buffer_->end());
+            current_buffer_->clear();
+        }
+    } // 避免持锁写
+
+    if (!final_buf.empty()) {
+        std::lock_guard<std::mutex> lck(file_mtx_);
+        if (file_size_ + final_buf.size() >= MAX_FILE_SIZE) {
+            rollFile();
+        }
         if (log_file_.is_open()) {
-            log_file_.write(current_buffer_->data(), current_buffer_->size());
+            log_file_.write(final_buf.data(), final_buf.size());
+            log_file_.flush();
         }
     }
-    if (log_file_.is_open()) {
-        log_file_.flush();
+
+}
+
+void AsyncLogger::shutdown() {
+    is_running_ = false;
+    cv_.notify_all();
+    if (write_thread_ && write_thread_->joinable()) {
+        write_thread_->join();
     }
 }
+#endif

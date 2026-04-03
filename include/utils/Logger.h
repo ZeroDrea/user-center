@@ -10,6 +10,7 @@
 #include <thread>
 #include <filesystem>
 #include <memory>
+#include <atomic>
 
 // C++17 命名空间
 namespace fs = std::filesystem;
@@ -35,6 +36,9 @@ public:
     // 获取单例
     static AsyncLogger& getInstance();
 
+    static void setLevel(LogLevel level);  // 设置日志级别
+    static LogLevel getLevel();     // 获取日志级别
+
     // 初始化日志：日志路径、文件名前缀、缓冲大小、刷新间隔(ms)
     void init(const std::string& log_path, const std::string& file_name,
               size_t buffer_size = 1024 * 1024 * 8, // 8M缓冲
@@ -53,6 +57,7 @@ private:
 
     // 后台写文件线程函数
     void writeThreadFunc();
+    void writeWhenExit();  // 退出前写剩余数据
 
     // 等级转字符串
     const char* level2Str(LogLevel level);
@@ -61,14 +66,18 @@ private:
     void rollFile();
 
 private:
+    static std::atomic<LogLevel> current_level_;
+    std::atomic<uint64_t> dropped_count_{0};     // 统计被丢弃的日志数目
     // 双缓冲类型：vector<char> 高效拼接字符串
     using Buffer = std::vector<char>;
 
     // 线程相关
     std::unique_ptr<std::thread> write_thread_;  // 后台写线程
-    std::mutex mtx_;                             // 互斥锁
+    std::mutex mtx_;                             // 互斥锁，锁双缓冲区
+    std::mutex file_mtx_;                        // 互斥锁，锁写入文件
     std::condition_variable cv_;                 // 条件变量
-    bool is_running_;                            // 日志运行状态
+    std::atomic<bool> is_running_;        // 日志运行状态
+    int flush_interval_;
 
     // 双缓冲核心
     std::unique_ptr<Buffer> current_buffer_;     // 当前写入缓冲
