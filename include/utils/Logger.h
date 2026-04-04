@@ -76,7 +76,7 @@ private:
     std::mutex mtx_;                             // 互斥锁，锁双缓冲区
     std::mutex file_mtx_;                        // 互斥锁，锁写入文件
     std::condition_variable cv_;                 // 条件变量
-    std::atomic<bool> is_running_;        // 日志运行状态
+    std::atomic<bool> is_running_;               // 日志运行状态
     int flush_interval_;
 
     // 双缓冲核心

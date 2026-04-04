@@ -6,6 +6,14 @@
 
 std::atomic<LogLevel> AsyncLogger::current_level_{DEBUG};
 
+void AsyncLogger::setLevel(LogLevel level) {
+    current_level_.store(level, std::memory_order_relaxed);
+}
+
+LogLevel AsyncLogger::getLevel() {
+    return current_level_.load(std::memory_order_relaxed);
+}
+
 AsyncLogger& AsyncLogger::getInstance() {
     static AsyncLogger instance;
     return instance;
@@ -13,8 +21,8 @@ AsyncLogger& AsyncLogger::getInstance() {
 
 AsyncLogger::AsyncLogger() :
     is_running_(false),
-    buffer_size_(8 * 1024 * 1024),
     flush_interval_(3000),
+    buffer_size_(8 * 1024 * 1024),
     file_size_(0) {
     current_buffer_ = std::make_unique<Buffer>();
     next_buffer_ = std::make_unique<Buffer>();
