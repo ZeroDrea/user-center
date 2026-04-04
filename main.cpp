@@ -17,9 +17,9 @@ int main() {
     // AsyncLogger::getInstance().shutdown();
     thread_pool::ThreadPool t(thread_pool::ThreadPool::Config(6));
     
-    for (int i = 0; i < 10000; i++) {
+    for (size_t i = 0; i < 100000000; i++) {
         t.Submit([=](){
-            LOG_DEBUG("begin working %d", i);
+            LOG_DEBUG("begin working begin working %d", i);
         });
     }
 

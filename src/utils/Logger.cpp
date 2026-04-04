@@ -57,24 +57,34 @@ const char* AsyncLogger::level2Str(LogLevel level) {
     }
 }
 
-
 void AsyncLogger::rollFile() {
+    fs::path current = fs::path(log_path_) / file_name_;
+    
+    // 如果文件已打开，先关闭
     if (log_file_.is_open()) {
         log_file_.close();
     }
-
-    // 生成带时间戳的日志文件名：前缀_年月日_时分秒.log
-    auto now = std::chrono::system_clock::now();
-    auto time_t_now = std::chrono::system_clock::to_time_t(now);
-    std::tm tm_buf;
-    localtime_r(&time_t_now, &tm_buf); // POSIX
-    char time_str[32];
-    std::strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
-
-    std::string full_path = log_path_ + "/" + file_name_ + time_str + ".log";
-    std::cout << full_path << std::endl;
-    log_file_.open(full_path, std::ios::app);
+    
+    // 如果当前日志文件存在，则重命名归档
+    if (fs::exists(current)) {
+        auto now = std::chrono::system_clock::now();
+        auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        std::tm tm_buf;
+        localtime_r(&time_t_now, &tm_buf);
+        char time_str[32];
+        std::strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
+        fs::path archive = current;
+        archive += "." + std::string(time_str) + "." + std::to_string(ms.count()) + ".log";
+        fs::rename(current, archive);
+    }
+    
+    // 重新打开当前日志文件
+    log_file_.open(current, std::ios::app);
     file_size_ = 0;
+    if (!log_file_.is_open()) {
+        std::cerr << "AsyncLogger: rollFile failed to open " << current << std::endl;
+    }
 }
 
 void AsyncLogger::log(LogLevel level, const char* file, int line, const char* format, ...) {
@@ -156,7 +166,6 @@ void AsyncLogger::writeThreadFunc() {
             std::unique_lock<std::mutex> lck(mtx_);
             // 等待next_buffer_有数据
             cv_.wait_for(lck, std::chrono::milliseconds(flush_interval_), [this] {
-                return !next_buffer_->empty() || !is_running_;
                 return !next_buffer_->empty() || !current_buffer_->empty() || !is_running_;
             });
 
@@ -192,7 +201,6 @@ void AsyncLogger::writeThreadFunc() {
 }
 
 void AsyncLogger::writeWhenExit() { 
-    std::cout << "enter writeWhenExit" << std::endl;
     Buffer final_buf;
     final_buf.reserve(buffer_size_ * 2);
     {
