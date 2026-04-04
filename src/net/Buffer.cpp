@@ -118,7 +118,7 @@ ssize_t Buffer::writeFd(int fd, int* savedErrno) {
         return 0;
     }
     struct iovec vec;
-    vec.iov_base = const_cast<char*>(peek());
+    vec.iov_base = begin() + readIndex_;
     vec.iov_len = readable;
     ssize_t n = ::writev(fd, &vec, 1);
     if (n < 0) {

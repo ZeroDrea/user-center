@@ -55,7 +55,7 @@ public:
     /** 返回可写区域的起始指针（const 版本） */
     const char* beginWrite() const { return begin() + writeIndex_; }
 
-private:  // 暂不开放
+public:  // 暂不开放
     // ------------------------- 数据消费（取走数据） -------------------------
 
     /**
