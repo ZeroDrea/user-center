@@ -62,11 +62,14 @@ public:
 private:
     // 事件常量
     static constexpr uint32_t kNoneEvent = 0;
-    static constexpr uint32_t kReadEvent = EPOLLIN | EPOLLPRI;   // EPOLLIN | EPOLLPRI
+    static constexpr uint32_t kReadEvent = EPOLLIN | EPOLLPRI | EPOLLRDHUP;   // EPOLLIN | EPOLLPRI | EPOLLRDHUP
     static constexpr uint32_t kWriteEvent = EPOLLOUT;  // EPOLLOUT
 
     // 通知 EventLoop 更新当前 Channel 的事件状态
     void update();
+
+    // 通知 EventLoop 移除当前 Channel
+    void remove();
 
     EventLoop* loop_;      // 所属的 EventLoop
     int fd_;               // 关联的文件描述符

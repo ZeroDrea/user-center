@@ -4,18 +4,23 @@
 #include <cassert>
 #include <sys/epoll.h>
 
-Channel::Channel(EventLoop* loop, int fd) :
-    loop_(loop),
-    fd_(fd),
-    events_(kNoneEvent),
-    revents_(0),
-    inEpoll_(false){
-
+Channel::Channel(EventLoop* loop, int fd)
+    : loop_(loop),
+      fd_(fd),
+      events_(kNoneEvent),
+      revents_(0),
+      inEpoll_(false) {
 }
 
 Channel::~Channel() {
     if (inEpoll_) {
-        disableAll();
+        loop_->removeChannel(this);
+    }
+}
+
+void Channel::remove() {
+    if (inEpoll_) {
+        loop_->removeChannel(this);
     }
 }
 
@@ -24,10 +29,19 @@ void Channel::update() {
 }
 
 void Channel::handleEvent() {
-    if (revents_ & ((EPOLLIN | EPOLLPRI))) {
-        if (readCallback_) {
-            readCallback_();
-        }
+    // 错误或挂起优先处理
+    if (revents_ & (EPOLLERR | EPOLLHUP)) {
+        if (errorCallback_) errorCallback_();
+        return;
+    }
+
+    // 可读事件（包括普通数据、带外数据、对端关闭通知）
+    if (revents_ & (EPOLLIN | EPOLLPRI | EPOLLRDHUP)) {  // 半关闭在readCallback_中统一处理
+        if (readCallback_) readCallback_();
+    }
+
+    // 可写事件
+    if (revents_ & EPOLLOUT) {
+        if (writeCallback_) writeCallback_();
     }
 }
-
