@@ -24,6 +24,9 @@ public:
     Channel(EventLoop* loop, int fd);
     ~Channel();
 
+    // 通知 EventLoop 移除当前 Channel
+    void remove();
+
     // 禁止拷贝和赋值
     Channel(const Channel&) = delete;
     Channel& operator=(const Channel&) = delete;
@@ -67,9 +70,6 @@ private:
 
     // 通知 EventLoop 更新当前 Channel 的事件状态
     void update();
-
-    // 通知 EventLoop 移除当前 Channel
-    void remove();
 
     EventLoop* loop_;      // 所属的 EventLoop
     int fd_;               // 关联的文件描述符

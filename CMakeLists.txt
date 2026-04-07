@@ -14,11 +14,11 @@ endif()
 # 编译选项
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_options(-Wall -Wextra -g -O0 -pthread)
-    add_definitions(-DDEBUG)
+    add_definitions(-DUSER_CNETER_DEBUG)
     message("Build mode: Debug")
 else()
     add_compile_options(-Wall -Wextra -O2 -pthread)
-    add_definitions(-DRELEASE)
+    add_definitions(-DUSER_CENTER_RELEASE)
     message("Build mode: Release")
 endif()
 
