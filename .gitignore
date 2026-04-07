@@ -4,6 +4,8 @@ CMakeCache.txt
 cmake_install.cmake
 Makefile
 mysqlLearn.txt
+client
+server
 *.o
 *.a
 *.so
