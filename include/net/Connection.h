@@ -28,7 +28,7 @@ public:
 
     // 工厂方法：创建 Connection 对象，返回 shared_ptr
     static std::shared_ptr<Connection> create(EventLoop* loop, int fd, const InetAddr& peerAddr);
-    ~Connection();
+    ~Connection() = default;
 
     // 禁止拷贝和赋值
     Connection(const Connection&) = delete;

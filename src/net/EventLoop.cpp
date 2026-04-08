@@ -1,14 +1,15 @@
-#include "EventLoop.h"
-#include "EpollPoller.h"
-#include "Channel.h"
-#include <utils/Logger.h>
-
 #include <sys/eventfd.h>
 #include <unistd.h>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
 #include <sys/syscall.h>
+
+#include "net/EventLoop.h"
+#include "net/EpollPoller.h"
+#include "net/Channel.h"
+#include <utils/Logger.h>
+
 
 // 获取当前线程 ID（Linux 系统调用）
 static pid_t getThreadId() {
@@ -64,6 +65,7 @@ void EventLoop::loop() {
     }
 
     looping_ = false;
+    LOG_INFO("EventLoop quit success!!");
 }
 
 void EventLoop::quit() {

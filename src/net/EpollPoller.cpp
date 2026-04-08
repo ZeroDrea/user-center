@@ -1,11 +1,12 @@
-#include "EpollPoller.h"
-#include "Channel.h"
-#include <utils/Logger.h>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
 #include <unistd.h>
 #include <vector>
+
+#include "net/EpollPoller.h"
+#include "net/Channel.h"
+#include "utils/Logger.h"
 
 EpollPoller::EpollPoller()
     : epollfd_(::epoll_create1(EPOLL_CLOEXEC)),
@@ -14,6 +15,10 @@ EpollPoller::EpollPoller()
         LOG_ERROR("epoll_create1 failed: %s", strerror(errno));
         ::abort();
     }
+}
+
+EpollPoller::~EpollPoller() {
+    ::close(epollfd_);
 }
 
 void EpollPoller::update(int operation, Channel* channel) {
@@ -27,7 +32,6 @@ void EpollPoller::update(int operation, Channel* channel) {
 }
 
 void EpollPoller::updateChannel(Channel* channel) {
-
     if (channel->isNoneEvent()) {
         if (channel->isInEpoll()) {
             removeChannel(channel);

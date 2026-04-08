@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <functional>
 #include <atomic>
+#include "Buffer.h"
 
 class EventLoop;
 class Acceptor;
@@ -19,6 +20,7 @@ using ConnectionPtr = std::shared_ptr<Connection>;
  *   - 管理所有活动的 Connection 对象（通过 shared_ptr）
  *   - 设置 Acceptor 和 Connection 的回调
  *   - 提供用户业务回调（连接建立、消息到达、连接关闭）
+ *   - 使用时必须与它的EventLoop绑定在同一个线程
  * 
  * 采用单 Reactor 多线程模型：一个 EventLoop 线程处理所有 I/O，
  * 业务逻辑通过用户提供的消息回调自行决定是否投递给线程池。
@@ -63,7 +65,6 @@ private:
 
     // 连接管理
     std::unordered_map<int, ConnectionPtr> connections_;
-    std::atomic<int> nextConnId_;           // 用于生成连接 ID（可选）
 };
 
 #endif // NET_TCPSERVER_H

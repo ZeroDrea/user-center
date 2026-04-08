@@ -1,8 +1,10 @@
-#include "Channel.h"
-#include "EventLoop.h"
-
 #include <cassert>
 #include <sys/epoll.h>
+#include <unistd.h>
+#include "net/Channel.h"
+#include "net/EventLoop.h"
+#include <iostream>
+#include "utils/Logger.h"
 
 Channel::Channel(EventLoop* loop, int fd)
     : loop_(loop),
@@ -15,6 +17,10 @@ Channel::Channel(EventLoop* loop, int fd)
 Channel::~Channel() {
     if (inEpoll_) {
         loop_->removeChannel(this);
+        if (fd_ >= 0) {
+            LOG_INFO("close fd: %d success.", fd_);
+            ::close(fd_);
+        }
     }
 }
 

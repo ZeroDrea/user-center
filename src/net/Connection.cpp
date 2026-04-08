@@ -1,13 +1,14 @@
-#include "Connection.h"
-#include "Channel.h"
-#include "EventLoop.h"
-#include "InetAddr.h"
-#include <utils/Logger.h>
-
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
+
+#include "net/Connection.h"
+#include "net/Channel.h"
+#include "net/EventLoop.h"
+#include "net/InetAddr.h"
+#include <utils/Logger.h>
+
 
 
 std::shared_ptr<Connection> Connection::create(EventLoop* loop, int fd, const InetAddr& peerAddr) {
@@ -25,13 +26,6 @@ Connection::Connection(EventLoop* loop, int fd, const InetAddr& peerAddr)
     channel_->setErrorCallback([this]() { handleError(); });
     // 初始只关注读事件
     channel_->enableReading();
-}
-
-Connection::~Connection() {
-    // 确保已经关闭 fd
-    if (fd_ >= 0) {
-        ::close(fd_);
-    }
 }
 
 void Connection::send(const std::string& message) {

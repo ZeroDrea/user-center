@@ -1,18 +1,16 @@
-#include "TcpServer.h"
-#include "Acceptor.h"
-#include "EventLoop.h"
-#include "Connection.h"
-#include "InetAddr.h"
-#include <utils/Logger.h>
-
 #include <cassert>
+#include "net/TcpServer.h"
+#include "net/Acceptor.h"
+#include "net/EventLoop.h"
+#include "net/Connection.h"
+#include "net/InetAddr.h"
+#include "utils/Logger.h"
 
 TcpServer::TcpServer(EventLoop* loop, const InetAddr& listenAddr, 
                      const std::string& name, bool reusePort)
     : loop_(loop),
       acceptor_(new Acceptor(loop, listenAddr, reusePort)),
-      name_(name),
-      nextConnId_(0) {
+      name_(name) {
     // 设置 Acceptor 的新连接回调
     acceptor_->setNewConnectionCallback(
         [this](int clientFd, const InetAddr& peerAddr) {
@@ -21,6 +19,7 @@ TcpServer::TcpServer(EventLoop* loop, const InetAddr& listenAddr,
 }
 
 TcpServer::~TcpServer() {
+    assert(loop_->isInLoopThread());
     // 关闭所有连接
     for (auto& pair : connections_) {
         auto& conn = pair.second;

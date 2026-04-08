@@ -3,10 +3,10 @@
 
 #include <functional>
 #include <memory>
+#include "InetAddr.h"
 
 class EventLoop;
 class Channel;
-class InetAddr;   // 网络地址封装
 
 /**
  * Acceptor 用于接受新的 TCP 连接。

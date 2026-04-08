@@ -1,6 +1,6 @@
-#include "InetAddr.h"
 #include <arpa/inet.h>
 #include <cstring>
+#include "net/InetAddr.h"
 
 InetAddr::InetAddr() {
     std::memset(&addr_, 0, sizeof(addr_));
