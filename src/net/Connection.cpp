@@ -9,17 +9,22 @@
 #include <cerrno>
 #include <cstring>
 
+
+std::shared_ptr<Connection> Connection::create(EventLoop* loop, int fd, const InetAddr& peerAddr) {
+    return std::shared_ptr<Connection>(new Connection(loop, fd, peerAddr));
+}
+
 Connection::Connection(EventLoop* loop, int fd, const InetAddr& peerAddr)
     : loop_(loop),
       fd_(fd),
-      channel_(loop, fd),
+      channel_(new Channel(loop, fd)),
       peerAddr_(peerAddr) {
     // 设置 Channel 的回调函数
-    channel_.setReadCallback([this]() { handleRead(); });
-    channel_.setWriteCallback([this]() { handleWrite(); });
-    channel_.setErrorCallback([this]() { handleError(); });
+    channel_->setReadCallback([this]() { handleRead(); });
+    channel_->setWriteCallback([this]() { handleWrite(); });
+    channel_->setErrorCallback([this]() { handleError(); });
     // 初始只关注读事件
-    channel_.enableReading();
+    channel_->enableReading();
 }
 
 Connection::~Connection() {
@@ -34,11 +39,10 @@ void Connection::send(const std::string& message) {
 }
 
 void Connection::send(const char* data, size_t len) {
-    std::string message(data, len);
     if (loop_->isInLoopThread()) {
-        sendInLoop(message);
+        sendInLoop(std::string(data, len)); // 减少拷贝
     } else {
-        loop_->runInLoop([this, message]() { sendInLoop(message); });
+        loop_->runInLoop([this, message = std::string(data, len)]() { sendInLoop(message); });
     }
 }
 
@@ -79,7 +83,7 @@ void Connection::handleRead() {
 void Connection::handleWrite() {
     // 如果 outputBuffer_ 为空，则不应该注册写事件，但以防万一，取消写事件并返回
     if (outputBuffer_.readableBytes() == 0) {
-        channel_.disableWriting();
+        channel_->disableWriting();
         return;
     }
 
@@ -95,7 +99,7 @@ void Connection::handleWrite() {
     }
     outputBuffer_.retrieve(static_cast<size_t>(n));
     if (outputBuffer_.readableBytes() == 0) {
-        channel_.disableWriting();
+        channel_->disableWriting();
     }
 }
 
@@ -117,16 +121,15 @@ void Connection::handleClose() {
 void Connection::sendInLoop(const std::string& message) {
     // 将消息追加到输出缓冲区
     outputBuffer_.append(message);
-#if 0
     // 尝试直接发送（如果当前没有在等待写事件）
     // 注意：如果已经注册了写事件，说明上次未发送完，不能重复注册，但可以继续尝试写
     // 这里简单尝试一次写，如果写不完再注册写事件
-    if (!channel_.isWriting()) {
+    if (!channel_->isWriting()) {
         ssize_t n = ::write(fd_, outputBuffer_.peek(), outputBuffer_.readableBytes());
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 // 写缓冲区满，注册写事件
-                channel_.enableWriting();
+                channel_->enableWriting();
             } else {
                 LOG_ERROR("Connection::sendInLoop write error: %s", strerror(errno));
                 handleError();
@@ -135,22 +138,21 @@ void Connection::sendInLoop(const std::string& message) {
             outputBuffer_.retrieve(static_cast<size_t>(n));
             if (outputBuffer_.readableBytes() > 0) {
                 // 没有全部写完，注册写事件
-                channel_.enableWriting();
+                channel_->enableWriting();
             }
         }
     } else {
         // 已经在等待写事件，不需要做额外操作，下次写事件会继续发送
     }
-#endif
 }
 
 void Connection::removeConnection() {
     // 由 closeCallback_ 调用，通常在 TcpServer 中移除连接并销毁对象
     // 注意：此时应该停止 Channel 的事件监听，并关闭 fd
-    channel_.disableAll();
-    channel_.remove();
+    channel_->disableAll();
+    channel_->remove();
     if (fd_ >= 0) {
         ::close(fd_);
-        fd_ = -1;
+        fd_ = -1;  // 用于析构函数防御
     }
 }

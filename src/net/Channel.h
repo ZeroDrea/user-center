@@ -43,6 +43,8 @@ public:
 
     // 是否没有需要监听的事件（用于判断是否要从 epoll 中删除）
     bool isNoneEvent() const { return events_ == kNoneEvent; }
+    bool isWriting() const { return events_ & kWriteEvent; }
+    bool isReading()  const { return events_ & kReadEvent; }
 
     // ------------------------- 修改关注事件 -------------------------
     void enableReading()   { events_ |= kReadEvent; update(); }

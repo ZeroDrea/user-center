@@ -38,6 +38,8 @@ public:
     /// 是否正在监听（用于状态查询）
     bool listening() const { return listening_; }
 
+    const InetAddr& listenAddr() const{ return listenAddr_; }
+
 private:
     /// 当 listen_fd 可读时的处理函数（由 Channel 回调）
     void handleRead();
@@ -47,6 +49,7 @@ private:
     std::unique_ptr<Channel> channel_;    // 封装 listenFd 的 Channel
     NewConnectionCallback newConnectionCallback_;  // 新连接回调
     bool listening_;                      // 是否正在监听
+    InetAddr listenAddr_;
 };
 
 #endif // NET_ACCEPTOR_H

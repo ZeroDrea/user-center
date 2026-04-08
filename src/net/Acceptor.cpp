@@ -27,7 +27,8 @@ Acceptor::Acceptor(EventLoop* loop, const InetAddr& listenAddr, bool reusePort)
     : loop_(loop),
       listenFd_(::socket(AF_INET, SOCK_STREAM, 0)),
       channel_(new Channel(loop, listenFd_)),
-      listening_(false) {
+      listening_(false),
+      listenAddr_(listenAddr) {
     if (listenFd_ < 0) {
         LOG_ERROR("Acceptor: socket creation failed: %s", strerror(errno));
         ::abort();
@@ -53,8 +54,8 @@ Acceptor::Acceptor(EventLoop* loop, const InetAddr& listenAddr, bool reusePort)
     }
 
     // 绑定地址
-    const struct sockaddr* addr = listenAddr.getSockAddr();
-    socklen_t addrLen = listenAddr.getSockLen();
+    const struct sockaddr* addr = listenAddr_.getSockAddr();
+    socklen_t addrLen = listenAddr_.getSockLen();
     if (::bind(listenFd_, addr, addrLen) < 0) {
         LOG_ERROR("Acceptor: bind failed: %s", strerror(errno));
         ::close(listenFd_);

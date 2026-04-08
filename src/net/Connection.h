@@ -5,10 +5,10 @@
 #include <string>
 #include <functional>
 #include "Buffer.h"
+#include "InetAddr.h"
 
 class EventLoop;
 class Channel;
-class InetAddr;
 
 /**
  * 每个 Connection 对象拥有一个独立的 socket fd，并负责：
@@ -26,13 +26,8 @@ public:
     using CloseCallback   = std::function<void(const std::shared_ptr<Connection>&)>;
     using ErrorCallback   = std::function<void(const std::shared_ptr<Connection>&)>;
 
-    /**
-     * 构造函数
-     * @param loop     所属的 EventLoop（即 I/O 线程）
-     * @param fd       已连接的非阻塞 socket fd
-     * @param peerAddr 对端地址（用于日志或记录）
-     */
-    Connection(EventLoop* loop, int fd, const InetAddr& peerAddr);
+    // 工厂方法：创建 Connection 对象，返回 shared_ptr
+    static std::shared_ptr<Connection> create(EventLoop* loop, int fd, const InetAddr& peerAddr);
     ~Connection();
 
     // 禁止拷贝和赋值
@@ -56,7 +51,18 @@ public:
     /// 获取对端地址（只读）
     const InetAddr& peerAddr() const { return peerAddr_; }
 
+    int fd() const { return fd_; }
+
 private:
+    /**
+     * 构造函数
+     * @param loop     所属的 EventLoop（即 I/O 线程）
+     * @param fd       已连接的非阻塞 socket fd
+     * @param peerAddr 对端地址（用于日志或记录）
+     */
+    
+    Connection(EventLoop* loop, int fd, const InetAddr& peerAddr);
+
     // 事件处理函数（由 Channel 回调）
     void handleRead();
     void handleWrite();
@@ -71,7 +77,7 @@ private:
 
     EventLoop* loop_;                 // 所属的 EventLoop
     int fd_;                          // socket 文件描述符
-    Channel channel_;                 // 封装 fd 的事件通道
+    std::unique_ptr<Channel> channel_;
     Buffer inputBuffer_;              // 输入缓冲区（从 socket 读入）
     Buffer outputBuffer_;             // 输出缓冲区（待发送数据）
     InetAddr peerAddr_;               // 对端地址
