@@ -62,13 +62,13 @@ void Connection::handleRead() {
         LOG_ERROR("Connection::handleRead error: %s", strerror(savedErrno));
         handleError();
         return;
-    } else if (n == 0) {
+    } else if (n == 0) { // TODO：半关闭没处理
         // 对端关闭连接
+        LOG_DEBUG("Connection::handleRead read 0");
         handleClose();
         return;
     }
 
-    // 有数据可读，调用消息回调（如果设置了）
     if (messageCallback_) {
         messageCallback_(shared_from_this(), inputBuffer_);
     }
@@ -77,6 +77,7 @@ void Connection::handleRead() {
 void Connection::handleWrite() {
     // 如果 outputBuffer_ 为空，则不应该注册写事件，但以防万一，取消写事件并返回
     if (outputBuffer_.readableBytes() == 0) {
+        LOG_DEBUG("Connection::handleWrite: outputBuffer_.readableBytes() == 0");
         channel_->disableWriting();
         return;
     }
@@ -85,6 +86,7 @@ void Connection::handleWrite() {
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // 仍然不能写，等下次
+            LOG_DEBUG("wait for next: %s", strerror(errno));
             return;
         }
         LOG_ERROR("Connection::handleWrite error: %s", strerror(errno));
@@ -92,7 +94,7 @@ void Connection::handleWrite() {
         return;
     }
     outputBuffer_.retrieve(static_cast<size_t>(n));
-    if (outputBuffer_.readableBytes() == 0) {
+    if (outputBuffer_.readableBytes() == 0) {  // 写完了，取消写事件
         channel_->disableWriting();
     }
 }
@@ -116,8 +118,6 @@ void Connection::sendInLoop(const std::string& message) {
     // 将消息追加到输出缓冲区
     outputBuffer_.append(message);
     // 尝试直接发送（如果当前没有在等待写事件）
-    // 注意：如果已经注册了写事件，说明上次未发送完，不能重复注册，但可以继续尝试写
-    // 这里简单尝试一次写，如果写不完再注册写事件
     if (!channel_->isWriting()) {
         ssize_t n = ::write(fd_, outputBuffer_.peek(), outputBuffer_.readableBytes());
         if (n < 0) {

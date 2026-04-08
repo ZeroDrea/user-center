@@ -18,7 +18,7 @@ Channel::~Channel() {
     if (inEpoll_) {
         loop_->removeChannel(this);
         if (fd_ >= 0) {
-            LOG_INFO("close fd: %d success.", fd_);
+            LOG_DEBUG("close fd: %d success.", fd_);
             ::close(fd_);
         }
     }

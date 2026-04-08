@@ -29,6 +29,7 @@ void EpollPoller::update(int operation, Channel* channel) {
         LOG_ERROR("epoll_ctl error (op=%d, fd=%d): %s", operation, channel->fd(), strerror(errno));
         ::abort();
     }
+    LOG_DEBUG("epoll_ctl success (op=%d, fd=%d)", operation, channel->fd());
 }
 
 void EpollPoller::updateChannel(Channel* channel) {

@@ -5,6 +5,7 @@
 #include <cerrno>         // errno
 #include <cassert>
 #include "net/Buffer.h"
+#include "utils/Logger.h"
 
 Buffer::Buffer(size_t initialSize)
     : buffer_(kCheapPrepend + initialSize),
@@ -57,7 +58,10 @@ void Buffer::append(const std::string& str) {
 }
 
 void Buffer::prepend(const char* data, size_t len) {
-    assert(len <= prependableBytes());
+    if (len > prependableBytes()) {
+        LOG_ERROR("Buffer prepend err, len(%zu), size(%zu)", len, prependableBytes());
+        return;
+    }
     readIndex_ -= len;
     std::copy(data, data + len, begin() + readIndex_);
 }
@@ -141,6 +145,7 @@ void Buffer::shrink(size_t reserve) {
     size_t newCapacity = kCheapPrepend + readable + reserve;
     if (newCapacity >= buffer_.size()) {
         // 当前容量已经足够小，无需收缩
+        LOG_DEBUG("current size(%zu), newCapacity(%zu)", buffer_.size(), newCapacity);
         return;
     }
     

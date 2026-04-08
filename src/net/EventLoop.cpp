@@ -53,6 +53,7 @@ void EventLoop::loop() {
     assertInLoopThread();
     looping_ = true;
     quit_ = false;
+    LOG_INFO("start EventLoop, threadId: %d, wakeupFd: %d", threadId_, wakeupFd_);
 
     while (!quit_) {
         // 等待 I/O 事件，超时 10 毫秒（可调整）
@@ -65,7 +66,7 @@ void EventLoop::loop() {
     }
 
     looping_ = false;
-    LOG_INFO("EventLoop quit success!!");
+    LOG_INFO("EventLoop(%d) quit success!!", threadId_);
 }
 
 void EventLoop::quit() {
