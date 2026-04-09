@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <iterator>
+#include "utils/Logger.h"
 
 namespace thread_pool {
 /**
@@ -25,14 +26,6 @@ public:
 };
 
 /**
- * @brief 任务执行策略
- */
-enum class LaunchPolicy {
-    kAsync,     // 异步执行（默认）
-    kDeferred   // 延迟执行（暂未实现，保留扩展）
-};
-
-/**
  * @brief 线程池类
  * 线程安全，适用于高并发场景
  */
@@ -41,19 +34,15 @@ public:
     struct Config {
         size_t thread_count;
         size_t max_queue_size;
-        LaunchPolicy default_policy;  // 默认执行策略
         Config() 
             : thread_count(0)
-            , max_queue_size(0)
-            , default_policy(LaunchPolicy::kAsync) {}
+            , max_queue_size(0) {}
         explicit Config(size_t threads) 
             : thread_count(threads)
-            , max_queue_size(0)
-            , default_policy(LaunchPolicy::kAsync) {}
+            , max_queue_size(0) {}
         Config(size_t threads, size_t max_queue) 
             : thread_count(threads)
-            , max_queue_size(max_queue)
-            , default_policy(LaunchPolicy::kAsync) {}
+            , max_queue_size(max_queue) {}
     };
     ThreadPool() : ThreadPool(Config()) {}
     explicit ThreadPool(const Config& config);
@@ -68,36 +57,14 @@ public:
     /**
      * @brief 提交任务到线程池
      */
+
     template<typename F, typename... Args>
     auto Submit(F&& f, Args&&... args) 
         -> std::future<typename std::invoke_result_t<F, Args...>>;
-
-    template<typename F, typename... Args>
-    auto Submit(LaunchPolicy policy, F&& f, Args&&... args) 
-        -> std::future<typename std::invoke_result_t<F, Args...>>;
-    
-    /**
-     * @brief 批量提交任务
-     */
-    template<typename InputIt, typename F>
-    auto SubmitBitch(InputIt first, InputIt last, F&& f) 
-        -> std::vector<std::future<typename std::invoke_result_t<F,
-            typename std::iterator_traits<InputIt>::value_type>>>;
     
 private:
-    struct Task {
-        std::function<void()> func;
-        LaunchPolicy policy;
-
-        Task() = default;
-
-        template<typename F>
-        explicit Task(F&& f, LaunchPolicy p = LaunchPolicy::kAsync)
-            : func(std::forward<F>(f)), policy(p) {}
-    };
-
+    using Task = std::function<void()>;
     void WorkerLoop();
-    void ExecuteTask(Task&& task);
     void Cleanup() noexcept;
 
 private:
@@ -116,11 +83,46 @@ private:
 template<typename F, typename... Args>
 auto ThreadPool::Submit(F&& f, Args&&... args) 
     -> std::future<typename std::invoke_result_t<F, Args...>> {
-    return Submit(LaunchPolicy::kAsync, std::forward<F>(f), std::forward<Args>(args)...);
+    using ReturnType = typename std::invoke_result_t<F, Args...>;
+
+    // 将参数打包到 tuple 中，以便在 lambda 中展开
+    auto params = std::make_tuple(std::forward<Args>(args)...);
+    
+    // 创建 packaged_task，内部 lambda 负责调用用户函数并捕获异常
+    auto task = std::make_shared<std::packaged_task<ReturnType()>>(
+        [func = std::forward<F>(f), params = std::move(params)]() mutable -> ReturnType {
+            try {
+                // 使用 std::apply 展开 tuple 调用函数
+                return std::apply(func, std::move(params));
+            } catch (const std::exception& e) {
+                LOG_ERROR("Task threw exception: %s", e.what());
+                throw;  // 重新抛出，让 packaged_task 捕获并存储到 future
+            } catch (...) {
+                LOG_ERROR("Task threw unknown exception");
+                throw;
+            }
+        }
+    );
+    
+    auto res = task->get_future();
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stop_) {
+        throw ThreadPoolException("ThreadPool is stopped");
+    }
+    if (config_.max_queue_size > 0 && tasks_.size() >= config_.max_queue_size) {
+        throw ThreadPoolException("Task queue is full");
+    }
+
+    // 将 packaged_task 包装成无参函数放入队列
+    tasks_.emplace([task]() { (*task)(); });
+    cv_.notify_one();
+    return res;
 }
 
+#if 0
 template<typename F, typename... Args>
-auto ThreadPool::Submit(LaunchPolicy policy, F&& f, Args&&... args) 
+auto ThreadPool::Submit(F&& f, Args&&... args) 
     -> std::future<typename std::invoke_result_t<F, Args...>> {
     using ReturnType = typename std::invoke_result_t<F, Args...>;
 
@@ -133,37 +135,16 @@ auto ThreadPool::Submit(LaunchPolicy policy, F&& f, Args&&... args)
     if (stop_) {
         throw ThreadPoolException("ThreadPool is stopped");
     }
-
-    // 队列满判断
     if (config_.max_queue_size > 0 && tasks_.size() >= config_.max_queue_size) {
         throw ThreadPoolException("Task queue is full");
     }
 
-    auto task_func = [packaged_task]() {
-        (*packaged_task)();
-    };
-    tasks_.emplace(std::move(task_func), policy);
+    // 直接创建 Task（std::function<void()>）
+    tasks_.emplace([packaged_task]() { (*packaged_task)(); });
     cv_.notify_one();
     return res;
 }
-
-template<typename InputIt, typename F>
-auto ThreadPool::SubmitBitch(InputIt first, InputIt last, F&& f) 
-    -> std::vector<std::future<typename std::invoke_result_t<F, 
-        typename std::iterator_traits<InputIt>::value_type>>> {
-    using ValueType = typename std::iterator_traits<InputIt>::value_type;
-    using ReturnType = typename std::invoke_result_t<F, ValueType>;
-
-    std::vector<std::future<ReturnType>> futures;
-    futures.reserve(static_cast<size_t>(std::distance(first, last)));
-
-    for (auto it = first; it != last; ++it) {
-        futures.push_back(Submit(std::forward<F>(f), *it));
-    }
-
-    return futures;
-}
-
+#endif
 } // namespace thread_pool
 
 

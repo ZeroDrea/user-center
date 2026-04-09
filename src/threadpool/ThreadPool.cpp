@@ -1,5 +1,7 @@
-#include <threadpool/ThreadPool.h>
 #include <iostream>
+#include "threadpool/ThreadPool.h"
+#include "utils/Logger.h"
+
 namespace thread_pool {
 ThreadPool::ThreadPool(const Config& config) 
     : config_(config) {
@@ -12,7 +14,8 @@ ThreadPool::ThreadPool(const Config& config)
     }
 
     config_.thread_count = thread_count;
-    std::cout << "thread_count: " << thread_count << ", max_queue_size: " << config_.max_queue_size << std::endl;
+    LOG_INFO("create thread pool success, thread_count(%zu), max_queue_size(%zu).", 
+        thread_count, config_.max_queue_size);
     workers_.reserve(thread_count);
     for (size_t i = 0; i < thread_count; i++) {
         workers_.emplace_back(&ThreadPool::WorkerLoop, this);
@@ -20,7 +23,6 @@ ThreadPool::ThreadPool(const Config& config)
 }
 
 void ThreadPool::WorkerLoop() {
-    std::cout << "工作线程id: " << std::this_thread::get_id() << "创建成功" << std::endl;
     while (true) {
         std::optional<Task> task;
         {
@@ -39,44 +41,36 @@ void ThreadPool::WorkerLoop() {
             }
         }
 
-        if (task.has_value()) {
-            ExecuteTask(std::move(task.value()));
+        if (task) {
+            (*task)();
         }
     }
 }
 
 void ThreadPool::Cleanup() noexcept {
-    int cnt = 0;
+    // 停止接受新任务
     {
-        std::lock_guard<std::mutex> lck(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
         stop_ = true;
-        std::queue<Task> empty;
-        cnt = tasks_.size();
-        swap(tasks_, empty);
-
-        cv_.notify_all();
     }
+    cv_.notify_all();
 
+    // 等待所有工作线程退出（它们会消费完队列中的所有任务）
     for (auto& worker : workers_) {
         if (worker.joinable()) {
             worker.join();
-        } else {
-            std::cout << "工作线程id: " << worker.get_id() << "回收失败" << std::endl;
         }
-
     }
-    std::cout << "还有cnt: " << cnt << "任务没有完成" << std::endl;
 
-}
-
-void ThreadPool::ExecuteTask(Task&& task) {
-    if (task.policy == LaunchPolicy::kDeferred) {
-        // 延迟执行策略：在等待 future 时才执行
-        // 这里直接执行，实际上由 submit 中的 packaged_task 控制
-        task.func();
-    } else {
-            // 异步执行策略：立即执行
-        task.func();
+    // 检查是否还有遗留任务
+    size_t remaining = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        remaining = tasks_.size();
+        if (remaining > 0) {
+            LOG_WARN("ThreadPool destroyed with %zu pending tasks", remaining);
+            tasks_ = {};  // 强制清空
+        }
     }
 }
 
