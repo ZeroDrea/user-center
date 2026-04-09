@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.20)
 project(user_center)
 
 # C++17
@@ -27,11 +27,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/bin)
 
-# ======================================================================
-# 【关键】查找 MySQL 和 hiredis 库（自动找系统路径，不用手动写路径）
-# ======================================================================
-
-
 # find_package(MySQL REQUIRED)
 # find_package(hiredis REQUIRED)
 
@@ -42,12 +37,14 @@ add_subdirectory(src/db)
 add_subdirectory(src/net)
 add_subdirectory(src/service)
 
+# 第三方库 (静态链接)
+set(BUILD_SHARED_LIBS OFF)
+set(BUILD_STATIC_LIBS ON)
+add_subdirectory(third_party/llhttp)
+
 # 主程序
 add_executable(${PROJECT_NAME} main.cpp)
 
-# ======================================================================
-# 链接：使用官方变量，自动包含库路径 + 头文件路径
-# ======================================================================
 target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
@@ -60,11 +57,15 @@ target_link_libraries(
     # ${HIREDIS_LIBRARIES}
 )
 
+# 链接第三方库
+target_link_libraries(${PROJECT_NAME} PRIVATE llhttp::llhttp)
+
 # 主程序头文件
 target_include_directories(
     ${PROJECT_NAME}
     PRIVATE
     ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/third_party/llhttp/include
     # ${MYSQL_INCLUDE_DIRS}
     # ${HIREDIS_INCLUDE_DIRS}
 )
