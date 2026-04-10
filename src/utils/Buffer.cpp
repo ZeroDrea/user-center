@@ -4,7 +4,7 @@
 #include <algorithm>      // std::copy
 #include <cerrno>         // errno
 #include <cassert>
-#include "net/Buffer.h"
+#include "utils/Buffer.h"
 #include "utils/Logger.h"
 
 Buffer::Buffer(size_t initialSize)

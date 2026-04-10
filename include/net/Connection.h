@@ -4,8 +4,10 @@
 #include <memory>
 #include <string>
 #include <functional>
-#include "Buffer.h"
+#include "utils/Buffer.h"
 #include "InetAddr.h"
+#include "http/HttpRequest.h"
+#include "http/HttpContext.h"
 
 class EventLoop;
 class Channel;
@@ -22,7 +24,7 @@ class Channel;
  */
 class Connection : public std::enable_shared_from_this<Connection> {
 public:
-    using MessageCallback = std::function<void(const std::shared_ptr<Connection>&, Buffer&)>;
+    using HttpRequestCallback = std::function<void(const std::shared_ptr<Connection>&, const HttpRequest&)>;
     using CloseCallback   = std::function<void(const std::shared_ptr<Connection>&)>;
     using ErrorCallback   = std::function<void(const std::shared_ptr<Connection>&)>;
 
@@ -42,7 +44,7 @@ public:
     void shutdown();
 
     /// 设置消息回调（当 inputBuffer_ 中解析出完整消息时调用）
-    void setMessageCallback(MessageCallback cb) { messageCallback_ = std::move(cb); }
+    void setHttpRequestCallback(HttpRequestCallback cb) { httpRequestCallback_ = std::move(cb); }
     /// 设置连接关闭回调（由 TcpServer 用于移除连接）
     void setCloseCallback(CloseCallback cb)     { closeCallback_ = std::move(cb); }
     /// 设置错误回调（可选）
@@ -62,6 +64,7 @@ private:
      */
     
     Connection(EventLoop* loop, int fd, const InetAddr& peerAddr);
+    void sendErrorResponse(int statusCode);
 
     // 事件处理函数（由 Channel 回调）
     void handleRead();
@@ -82,9 +85,10 @@ private:
     Buffer outputBuffer_;             // 输出缓冲区（待发送数据）
     InetAddr peerAddr_;               // 对端地址
 
-    MessageCallback messageCallback_; // 消息回调（用户业务）
+    HttpRequestCallback httpRequestCallback_;  // 消息的回调
     CloseCallback   closeCallback_;   // 关闭回调（通知 TcpServer）
     ErrorCallback   errorCallback_;   // 错误回调（可选）
+    HttpContext httpContext_;          // 解析状态机
 };
 
 using ConnectionPtr = std::shared_ptr<Connection>;

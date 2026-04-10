@@ -31,41 +31,25 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/bin)
 # find_package(hiredis REQUIRED)
 
 # 子模块
+# 添加自己的模块
 add_subdirectory(src/utils)
 add_subdirectory(src/threadpool)
 add_subdirectory(src/db)
 add_subdirectory(src/net)
-add_subdirectory(src/service)
-
-# 第三方库 (静态链接)
-set(BUILD_SHARED_LIBS OFF)
-set(BUILD_STATIC_LIBS ON)
-add_subdirectory(third_party/llhttp)
+add_subdirectory(src/http)      # 新增 HTTP 模块
 
 # 主程序
 add_executable(${PROJECT_NAME} main.cpp)
 
-target_link_libraries(
-    ${PROJECT_NAME}
-    PRIVATE
-    service
+target_link_libraries(${PROJECT_NAME} PRIVATE
     net
+    utils
     db
     threadpool
-    utils
-    # ${MYSQL_LIBRARIES}
-    # ${HIREDIS_LIBRARIES}
+    http
 )
 
-# 链接第三方库
-target_link_libraries(${PROJECT_NAME} PRIVATE llhttp::llhttp)
-
-# 主程序头文件
-target_include_directories(
-    ${PROJECT_NAME}
-    PRIVATE
+# 主程序头文件路径
+target_include_directories(${PROJECT_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/third_party/llhttp/include
-    # ${MYSQL_INCLUDE_DIRS}
-    # ${HIREDIS_INCLUDE_DIRS}
 )

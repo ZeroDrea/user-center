@@ -7,7 +7,7 @@
 #include "net/Channel.h"
 #include "net/EventLoop.h"
 #include "net/InetAddr.h"
-#include <utils/Logger.h>
+#include "utils/Logger.h"
 
 
 
@@ -51,27 +51,60 @@ void Connection::shutdown() {
     }
 }
 
+void Connection::sendErrorResponse(int statusCode) {
+    std::string body;
+    std::string statusMsg;
+    if (statusCode == 400) {
+        body = "Bad Request";
+        statusMsg = "Bad Request";
+    } else if (statusCode == 404) {
+        body = "Not Found";
+        statusMsg = "Not Found";
+    } else {
+        body = "Internal Server Error";
+        statusMsg = "Internal Server Error";
+    }
+    std::string response = "HTTP/1.1 " + std::to_string(statusCode) + " " + statusMsg + "\r\n"
+                         + "Content-Length: " + std::to_string(body.size()) + "\r\n"
+                         + "Connection: close\r\n"
+                         + "\r\n"
+                         + body;
+    send(response);
+}
+
 void Connection::handleRead() {
     int savedErrno = 0;
     ssize_t n = inputBuffer_.readFd(fd_, &savedErrno);
     if (n < 0) {
-        if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK) {
-            // 没有更多数据，返回
-            return;
-        }
         LOG_ERROR("Connection::handleRead error: %s", strerror(savedErrno));
         handleError();
         return;
-    } else if (n == 0) { // TODO：半关闭没处理
-        // 对端关闭连接
+    } else if (n == 0) {
         LOG_DEBUG("Connection::handleRead read 0");
-        handleClose();
+        handleClose();   // 对端关闭
         return;
     }
-
-    if (messageCallback_) {
-        messageCallback_(shared_from_this(), inputBuffer_);
+    LOG_DEBUG("Connection::handleRead fd: %d.",fd_);
+    // 使用状态机解析 inputBuffer_
+    bool complete = httpContext_.parse(&inputBuffer_);
+    if (httpContext_.isError()) {
+        // 解析失败，发送 400 并关闭连接
+        LOG_ERROR("httpContext fail, fd: %d.", fd_);
+        sendErrorResponse(400);
+        shutdown();
+        return;
     }
+    if (complete) {
+        // 得到一个完整的 HttpRequest
+        if (httpRequestCallback_) {
+            LOG_DEBUG("---- Request complete ----");
+            httpRequestCallback_(shared_from_this(), httpContext_.getRequest());
+        }
+        // 重置状态机，准备解析下一个请求（长连接）
+        httpContext_.reset();
+        // inputBuffer_ 中可能已经包含下一个请求的部分数据，下一次 handleRead 会继续解析
+    }
+    // 如果 incomplete，什么都不做，等待更多数据
 }
 
 void Connection::handleWrite() {
@@ -141,7 +174,6 @@ void Connection::sendInLoop(const std::string& message) {
 }
 
 void Connection::removeConnection() {
-    // 由 closeCallback_ 调用，通常在 TcpServer 中移除连接并销毁对象
     // 注意：此时应该停止 Channel 的事件监听，并关闭 fd
     channel_->disableAll();
     channel_->remove();

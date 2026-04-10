@@ -8,8 +8,4 @@ target_include_directories(net
 )
 
 # 依赖
-target_link_libraries(net
-    PRIVATE
-    utils
-    threadpool
-)
+# target_link_libraries(net PRIVATE http llhttp::llhttp)   # net 依赖 http

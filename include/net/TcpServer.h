@@ -5,7 +5,8 @@
 #include <unordered_map>
 #include <functional>
 #include <atomic>
-#include "Buffer.h"
+#include "utils/Buffer.h"
+#include "http/HttpRequest.h"
 
 class EventLoop;
 class Acceptor;
@@ -29,7 +30,7 @@ class TcpServer {
 public:
     // 用户回调类型
     using ConnectionCallback = std::function<void(const ConnectionPtr&)>;
-    using MessageCallback = std::function<void(const ConnectionPtr&, Buffer&)>;
+    using HttpRequestCallback = std::function<void(const ConnectionPtr&, const HttpRequest&)>;
 
     /**
      * 构造函数
@@ -50,7 +51,7 @@ public:
     void start();
 
     /// 设置消息到达回调（当收到完整消息时调用）
-    void setMessageCallback(MessageCallback cb) { messageCallback_ = std::move(cb); }
+    void setHttpRequestCallback(HttpRequestCallback cb) { httpRequestCallback_ = std::move(cb); }
 
 private:
     // 新连接到达时的回调（由 Acceptor 调用）
@@ -61,7 +62,7 @@ private:
     EventLoop* loop_;                       // 主 Reactor（I/O 线程）
     std::unique_ptr<Acceptor> acceptor_;    // 接受连接器
     std::string name_;                      // 服务器名称
-    MessageCallback messageCallback_;       // 用户消息回调
+    HttpRequestCallback httpRequestCallback_;  // 消息的回调
 
     // 连接管理
     std::unordered_map<int, ConnectionPtr> connections_;

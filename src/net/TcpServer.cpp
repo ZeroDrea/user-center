@@ -41,7 +41,7 @@ void TcpServer::onNewConnection(int clientFd, const InetAddr& peerAddr) {
     ConnectionPtr conn = Connection::create(loop_, clientFd, peerAddr);
     
     // 设置回调
-    conn->setMessageCallback(messageCallback_);
+    conn->setHttpRequestCallback(httpRequestCallback_);
     conn->setCloseCallback([this](const ConnectionPtr& c) {
         onConnectionClosed(c);
     });

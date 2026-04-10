@@ -3,7 +3,6 @@
 #include <unistd.h>
 #include "net/Channel.h"
 #include "net/EventLoop.h"
-#include <iostream>
 #include "utils/Logger.h"
 
 Channel::Channel(EventLoop* loop, int fd)
