@@ -8,8 +8,11 @@
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
 #include "utils/Logger.h"
+#include "threadpool/ThreadPool.h"
+#include "router/Router.h"
 
 std::atomic<EventLoop*> g_loop(nullptr);
+std::unique_ptr<thread_pool::ThreadPool> g_threadPool;
 
 void signalHandler(int sig) {
     if (sig == SIGINT && g_loop.load()) {
@@ -18,37 +21,24 @@ void signalHandler(int sig) {
     }
 }
 
-void onMessage(const ConnectionPtr& conn, const HttpRequest& req) {
-    req.getHeadAll();
-    HttpResponse resp;
+// 模拟业务处理函数
+void handleHome(const HttpRequest& req, HttpResponse& resp) {
     resp.setStatusCode(200);
-    
-    // 处理 HEAD 请求
-    if (req.getMethod() == HttpRequest::kHead) {
-        resp.setBody("");  // HEAD 无 body
-    } else {
-        resp.setBody("Hello\n");
-    }
-    
-    // 根据 HTTP 版本和 Connection 头决定是否保持连接
-    bool keepAlive = false;
-    if (req.getVersion() == "HTTP/1.1") {
-        keepAlive = (req.getHeader("Connection") != "close");
-    } else { // HTTP/1.0
-        keepAlive = (req.getHeader("Connection") == "keep-alive");
-    }
-    
-    if (keepAlive) {
-        resp.setHeader("Connection", "keep-alive");
-    } else {
-        resp.setHeader("Connection", "close");
-    }
-    
-    conn->send(resp.serialize());
-    
-    if (!keepAlive) {
-        conn->shutdown();
-    }
+    resp.setStatusMessage("OK");
+    resp.setBody("<html><body><h1>Welcome to User Center</h1></body></html>");
+    resp.setContentType("text/html");
+}
+
+void handleTest(const HttpRequest& req, HttpResponse& resp) {
+    resp.setStatusCode(200);
+    resp.setBody("Test route works!");
+    resp.setContentType("text/plain");
+}
+
+void handleNotFound(const HttpRequest& req, HttpResponse& resp) {
+    resp.setStatusCode(404);
+    resp.setBody("404 Not Found");
+    resp.setContentType("text/plain");
 }
 
 int main() {
@@ -57,13 +47,43 @@ int main() {
     g_loop.store(&loop);
     signal(SIGINT, signalHandler);
 
+    g_threadPool = std::make_unique<thread_pool::ThreadPool>(thread_pool::ThreadPool::Config(6, 20));
+
     InetAddr listenAddr("127.0.0.1", 8888);
     TcpServer server(&loop, listenAddr, "TestServer");
-    server.setHttpRequestCallback(onMessage);
+
+    Router router;
+    router.addRoute("/", HttpRequest::kGet, handleHome);
+    router.addRoute("/test", HttpRequest::kGet, handleTest);
+
+    server.setHttpRequestCallback([&router](const ConnectionPtr& conn, const HttpRequest& req){
+        g_threadPool->Submit([conn, req, &router](){
+            HttpResponse resp;
+            router.dispatch(req, resp);
+
+            bool keepAlive = false;
+            if (req.getVersion() == "HTTP/1.1") {
+                keepAlive = (req.getHeader("Connection") != "close");
+            } else {
+                keepAlive = (req.getHeader("Connection") == "keep-alive");
+            }
+
+            if (keepAlive) {
+                resp.setHeader("Connection", "keep-alive");
+            } else {
+                resp.setHeader("Connection", "close");
+            }
+
+            conn->send(resp.serialize());
+            if (!keepAlive) {
+                conn->shutdown();
+            }
+        });
+    });
+
     server.start();
 
-    std::cout << "HTTP server running on port 8888. Press Ctrl+C to stop." << std::endl;
+    std::cout << "Server running on http://127.0.0.1:8888 with thread pool" << std::endl;
     loop.loop();
     std::cout << "Server stopped." << std::endl;
-    return 0;
 }

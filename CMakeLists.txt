@@ -37,6 +37,7 @@ add_subdirectory(src/threadpool)
 add_subdirectory(src/db)
 add_subdirectory(src/net)
 add_subdirectory(src/http)      # 新增 HTTP 模块
+add_subdirectory(src/router)
 
 # 主程序
 add_executable(${PROJECT_NAME} main.cpp)
@@ -47,6 +48,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     db
     threadpool
     http
+    router
 )
 
 # 主程序头文件路径

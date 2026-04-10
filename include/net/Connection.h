@@ -55,6 +55,8 @@ public:
 
     int fd() const { return fd_; }
 
+    EventLoop* getLoop() const { return loop_; }
+
 private:
     /**
      * 构造函数
