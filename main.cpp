@@ -1,3 +1,4 @@
+#if 0
 #include <iostream>
 #include <signal.h>
 #include <unistd.h>
@@ -84,3 +85,16 @@ int main() {
     loop.loop();
     std::cout << "Server stopped." << std::endl;
 }
+
+#endif
+
+
+#if 1
+#include <iostream>
+#include "db/dbTest.h"
+
+int main() {
+    dbTest();
+}
+
+#endif

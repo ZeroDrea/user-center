@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 project(user_center)
 
+set(MYSQLCPPCONN_INCLUDE_DIR "/usr/include")
+set(MYSQLCPPCONN_LIBRARY "mysqlcppconn")
+
 # C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,21 +36,17 @@ add_subdirectory(src/db)
 add_subdirectory(src/net)
 add_subdirectory(src/http)
 add_subdirectory(src/router)
-add_subdirectory(src/service)   # <-- 添加 service 模块
+add_subdirectory(src/service)
 
 # 主程序
 add_executable(${PROJECT_NAME} main.cpp)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    net
-    utils
-    db
-    threadpool
-    http
-    router
-    service
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    net utils db threadpool http router service
+    ${MYSQLCPPCONN_LIBRARY}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/include
+    ${MYSQLCPPCONN_INCLUDE_DIR}
 )

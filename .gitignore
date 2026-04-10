@@ -12,4 +12,5 @@ server
 *.log
 .vscode/
 .idea/
+include/db/tables
 user_center
