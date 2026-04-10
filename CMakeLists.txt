@@ -14,7 +14,7 @@ endif()
 # 编译选项
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_compile_options(-Wall -Wextra -g -O0 -pthread)
-    add_definitions(-DUSER_CNETER_DEBUG)
+    add_definitions(-DUSER_CENTER_DEBUG)
     message("Build mode: Debug")
 else()
     add_compile_options(-Wall -Wextra -O2 -pthread)
@@ -27,17 +27,13 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/build/bin)
 
-# find_package(MySQL REQUIRED)
-# find_package(hiredis REQUIRED)
-
-# 子模块
-# 添加自己的模块
 add_subdirectory(src/utils)
 add_subdirectory(src/threadpool)
 add_subdirectory(src/db)
 add_subdirectory(src/net)
-add_subdirectory(src/http)      # 新增 HTTP 模块
+add_subdirectory(src/http)
 add_subdirectory(src/router)
+add_subdirectory(src/service)   # <-- 添加 service 模块
 
 # 主程序
 add_executable(${PROJECT_NAME} main.cpp)
@@ -49,9 +45,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     threadpool
     http
     router
+    service
 )
 
-# 主程序头文件路径
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/include
 )

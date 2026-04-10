@@ -97,7 +97,7 @@ void Connection::handleRead() {
     if (complete) {
         // 得到一个完整的 HttpRequest
         if (httpRequestCallback_) {
-            LOG_DEBUG("---- Request complete ----");
+            LOG_DEBUG("--------- Request complete --------");
             httpRequestCallback_(shared_from_this(), httpContext_.getRequest());
         }
         // 重置状态机，准备解析下一个请求（长连接）

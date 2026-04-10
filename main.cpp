@@ -10,6 +10,7 @@
 #include "utils/Logger.h"
 #include "threadpool/ThreadPool.h"
 #include "router/Router.h"
+#include "service/UserHandler.h"
 
 std::atomic<EventLoop*> g_loop(nullptr);
 std::unique_ptr<thread_pool::ThreadPool> g_threadPool;
@@ -23,6 +24,7 @@ void signalHandler(int sig) {
 
 // 模拟业务处理函数
 void handleHome(const HttpRequest& req, HttpResponse& resp) {
+    LOG_DEBUG("handleHome");
     resp.setStatusCode(200);
     resp.setStatusMessage("OK");
     resp.setBody("<html><body><h1>Welcome to User Center</h1></body></html>");
@@ -32,12 +34,6 @@ void handleHome(const HttpRequest& req, HttpResponse& resp) {
 void handleTest(const HttpRequest& req, HttpResponse& resp) {
     resp.setStatusCode(200);
     resp.setBody("Test route works!");
-    resp.setContentType("text/plain");
-}
-
-void handleNotFound(const HttpRequest& req, HttpResponse& resp) {
-    resp.setStatusCode(404);
-    resp.setBody("404 Not Found");
     resp.setContentType("text/plain");
 }
 
@@ -55,6 +51,7 @@ int main() {
     Router router;
     router.addRoute("/", HttpRequest::kGet, handleHome);
     router.addRoute("/test", HttpRequest::kGet, handleTest);
+    router.addRoute("/user/register", HttpRequest::kPost, handleRegister);
 
     server.setHttpRequestCallback([&router](const ConnectionPtr& conn, const HttpRequest& req){
         g_threadPool->Submit([conn, req, &router](){
