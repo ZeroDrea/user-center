@@ -115,7 +115,9 @@ int UserService::loginUser(const std::string& username,
     // 查询用户
     auto pstmt = g_mysqlClient->prepareStatement(
         "SELECT id, password_hash FROM users WHERE username = ?");
-    if (!pstmt) return -3;
+    if (!pstmt) {
+        return -3;
+    }
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (!res || !res->next()) {

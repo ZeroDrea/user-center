@@ -46,7 +46,7 @@ void handleRegister(const HttpRequest& req, HttpResponse& resp) {
             resp.setStatusCode(409);
             resp.setBody(respData.dump());
         } else {
-            LOG_WARN("Registration failed: invalid parameters for %s", username.c_str());
+            LOG_WARN("Registration failed ret(%d): invalid parameters for %s", ret, username.c_str());
             json respData = {{"code", 400}, {"msg", "Invalid parameters"}};
             resp.setStatusCode(400);
             resp.setBody(respData.dump());
