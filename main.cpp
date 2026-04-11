@@ -12,11 +12,10 @@
 #include "threadpool/ThreadPool.h"
 #include "router/Router.h"
 #include "service/UserHandler.h"
-#include "db/MySQLClient.h"
+#include "db/MySQLConnectionPool.h"
 
 std::atomic<EventLoop*> g_loop(nullptr);
 std::unique_ptr<thread_pool::ThreadPool> g_threadPool;
-std::unique_ptr<MySQLClient> g_mysqlClient;
 
 void signalHandler(int sig) {
     if (sig == SIGINT && g_loop.load()) {
@@ -27,16 +26,12 @@ void signalHandler(int sig) {
 
 int main() {
     AsyncLogger::getInstance().init("logs", "TcpServer.log");
+    MySQLConnectionPool::getInstance().init("tcp://127.0.0.1:3306", "appuser", "Master@123456", "user_center", 3306, 5, 20);
     EventLoop loop;
     g_loop.store(&loop);
     signal(SIGINT, signalHandler);
 
     g_threadPool = std::make_unique<thread_pool::ThreadPool>(thread_pool::ThreadPool::Config(6, 20));
-
-    g_mysqlClient = std::make_unique<MySQLClient>("tcp://127.0.0.1:3306", "root", "520102", "user_center");
-    if (!g_mysqlClient->connect()) {
-        LOG_ERROR("Failed to connect to MySQL");
-    }
 
     InetAddr listenAddr("127.0.0.1", 8888);
     TcpServer server(&loop, listenAddr, "TestServer");

@@ -1,5 +1,5 @@
 #include "service/UserService.h"
-#include "db/MySQLClient.h"
+#include "db/MySQLConnectionPool.h"
 #include <openssl/sha.h>
 #include <random>
 #include <sstream>
@@ -7,7 +7,7 @@
 #include <iostream>
 #include <memory>
 
-extern std::unique_ptr<MySQLClient> g_mysqlClient;
+
 
 // 生成简单的 UUID (v4 风格)
 static std::string generateUUID() {
@@ -41,25 +41,26 @@ int UserService::registerUser(
     const std::string& username,
     const std::string& password,
     const std::string& email) {
-    if (!g_mysqlClient || !g_mysqlClient->isConnected()) {
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn || !conn->isConnected()) {
         return 2; // 数据库错误
     }
 
     // 开启事务
-    g_mysqlClient->executeUpdate("START TRANSACTION");
+    conn->executeUpdate("START TRANSACTION");
 
     // 检查用户名或邮箱是否存在
-    auto pstmtCheck = g_mysqlClient->prepareStatement(
+    auto pstmtCheck = conn->prepareStatement(
         "SELECT id FROM users WHERE username = ? OR email = ?");
     if (!pstmtCheck) {
-        g_mysqlClient->executeUpdate("ROLLBACK");
+        conn->executeUpdate("ROLLBACK");
         return 2;
     }
     pstmtCheck->setString(1, username);
     pstmtCheck->setString(2, email);
     auto res = std::unique_ptr<sql::ResultSet>(pstmtCheck->executeQuery());
     if (res && res->next()) {
-        g_mysqlClient->executeUpdate("ROLLBACK");
+        conn->executeUpdate("ROLLBACK");
         return 1; // 用户名或邮箱已存在
     }
 
@@ -68,11 +69,11 @@ int UserService::registerUser(
     std::string passwordHash = sha256(password);
 
     // 插入 users 表
-    auto pstmtInsert = g_mysqlClient->prepareStatement(
+    auto pstmtInsert = conn->prepareStatement(
         "INSERT INTO users (uuid, username, email, password_hash, status, role) "
         "VALUES (?, ?, ?, ?, 1, 'user')");
     if (!pstmtInsert) {
-        g_mysqlClient->executeUpdate("ROLLBACK");
+        conn->executeUpdate("ROLLBACK");
         return 2;
     }
     pstmtInsert->setString(1, uuid);
@@ -81,39 +82,41 @@ int UserService::registerUser(
     pstmtInsert->setString(4, passwordHash);
     int affected = pstmtInsert->executeUpdate();
     if (affected <= 0) {
-        g_mysqlClient->executeUpdate("ROLLBACK");
+        conn->executeUpdate("ROLLBACK");
         return 2;
     }
 
-    uint64_t userId = g_mysqlClient->getLastInsertId();
+    uint64_t userId = conn->getLastInsertId();
 
     // 插入 user_profiles 默认记录
-    auto pstmtProfile = g_mysqlClient->prepareStatement(
+    auto pstmtProfile = conn->prepareStatement(
         "INSERT INTO user_profiles (user_id) VALUES (?)");
     if (!pstmtProfile) {
-        g_mysqlClient->executeUpdate("ROLLBACK");
+        conn->executeUpdate("ROLLBACK");
         return 2;
     }
     pstmtProfile->setUInt64(1, userId);
     if (pstmtProfile->executeUpdate() <= 0) {
-        g_mysqlClient->executeUpdate("ROLLBACK");
+        conn->executeUpdate("ROLLBACK");
         return 2;
     }
 
     // 提交事务
-    g_mysqlClient->executeUpdate("COMMIT");
+    conn->executeUpdate("COMMIT");
     return 0;
 }
 
-int UserService::loginUser(const std::string& username,
-                           const std::string& password,
-                           std::string& outNickname) {
-    if (!g_mysqlClient || !g_mysqlClient->isConnected()) {
+int UserService::loginUser(
+    const std::string& username,
+    const std::string& password,
+    std::string& outNickname) {
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn || !conn->isConnected()) {
         return -3;
     }
 
     // 查询用户
-    auto pstmt = g_mysqlClient->prepareStatement(
+    auto pstmt = conn->prepareStatement(
         "SELECT id, password_hash FROM users WHERE username = ?");
     if (!pstmt) {
         return -3;
@@ -133,7 +136,7 @@ int UserService::loginUser(const std::string& username,
     }
 
     // 获取昵称（从 user_profiles 表）
-    auto pstmtNick = g_mysqlClient->prepareStatement(
+    auto pstmtNick = conn->prepareStatement(
         "SELECT nickname FROM user_profiles WHERE user_id = ?");
     if (pstmtNick) {
         pstmtNick->setInt(1, userId);
@@ -150,19 +153,24 @@ int UserService::loginUser(const std::string& username,
 }
 
 std::string UserService::getUserInfoJson(int userId) {
-    if (!g_mysqlClient || !g_mysqlClient->isConnected()) {
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn || !conn->isConnected()) {
         return "{}";
     }
 
-    auto pstmt = g_mysqlClient->prepareStatement(
+    auto pstmt = conn->prepareStatement(
         "SELECT u.uuid, u.username, u.email, u.created_at, "
         "p.nickname, p.avatar_url, p.bio, p.gender "
         "FROM users u LEFT JOIN user_profiles p ON u.id = p.user_id "
         "WHERE u.id = ?");
-    if (!pstmt) return "{}";
+    if (!pstmt) {
+        return "{}";
+    }
     pstmt->setInt(1, userId);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
-    if (!res || !res->next()) return "{}";
+    if (!res || !res->next()) {
+        return "{}";
+    }
 
     // 构造 JSON 字符串（简单拼接，后续可用 nlohmann/json 简化）
     std::string json = "{";
@@ -179,18 +187,28 @@ std::string UserService::getUserInfoJson(int userId) {
 }
 
 bool UserService::isUsernameExist(const std::string& username) {
-    if (!g_mysqlClient || !g_mysqlClient->isConnected()) return false;
-    auto pstmt = g_mysqlClient->prepareStatement("SELECT id FROM users WHERE username = ?");
-    if (!pstmt) return false;
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn || !conn->isConnected()) {
+        return false;
+    }
+    auto pstmt = conn->prepareStatement("SELECT id FROM users WHERE username = ?");
+    if (!pstmt) {
+        return false;
+    }
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     return (res && res->next());
 }
 
 bool UserService::getUserByUsername(const std::string& username, int& userId, std::string& passwordHash) {
-    if (!g_mysqlClient || !g_mysqlClient->isConnected()) return false;
-    auto pstmt = g_mysqlClient->prepareStatement("SELECT id, password_hash FROM users WHERE username = ?");
-    if (!pstmt) return false;
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn || !conn->isConnected()) {
+        return false;
+    }
+    auto pstmt = conn->prepareStatement("SELECT id, password_hash FROM users WHERE username = ?");
+    if (!pstmt) {
+        return false;
+    }
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (res && res->next()) {
