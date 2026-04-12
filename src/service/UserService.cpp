@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include "auth/TokenManager.h"
 
 
 
@@ -106,36 +107,38 @@ int UserService::registerUser(
     return 0;
 }
 
-int UserService::loginUser(
+std::string UserService::loginUser(
     const std::string& username,
     const std::string& password,
     std::string& outNickname) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
-        return -3;
+        // TODO：数据库错误
+        return "";
     }
-
-    // 查询用户
+    
     auto pstmt = conn->prepareStatement(
         "SELECT id, password_hash FROM users WHERE username = ?");
     if (!pstmt) {
-        return -3;
+        // TODO：数据库错误
+        return "";
     }
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (!res || !res->next()) {
-        return -1; // 用户名不存在
+        // TODO：用户名不存在
+        return "";
     }
 
     int userId = res->getInt("id");
     std::string storedHash = res->getString("password_hash");
 
-    // 验证密码（此处使用 SHA256，后面使用 bcrypt 的验证函数）
+    // TODO：验证密码（此处使用 SHA256，后面使用 bcrypt 的验证函数）
     if (sha256(password) != storedHash) {
-        return -2; // 密码错误
+        // TODO：密码错误
+        return "";
     }
 
-    // 获取昵称（从 user_profiles 表）
     auto pstmtNick = conn->prepareStatement(
         "SELECT nickname FROM user_profiles WHERE user_id = ?");
     if (pstmtNick) {
@@ -146,10 +149,10 @@ int UserService::loginUser(
         }
     }
 
+    // TODO：
     // 更新最后登录时间和 IP（IP 在 Handler 中更新，这里先不更新）
-    // 可以在这里调用一个单独的方法更新 last_login_at，但为了避免事务复杂，暂不处理
-
-    return userId; // 成功返回用户ID
+    std::string token = TokenManager::createToken(userId);
+    return token;
 }
 
 std::string UserService::getUserInfoJson(int userId) {

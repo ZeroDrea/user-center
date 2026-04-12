@@ -10,7 +10,7 @@ public:
                             const std::string& email);
 
     // 登录：返回用户 ID（>0 表示成功），-1 表示用户名不存在，-2 表示密码错误，-3 数据库错误
-    static int loginUser(const std::string& username,
+    static std::string loginUser(const std::string& username,
                          const std::string& password,
                          std::string& outNickname); // 可选输出昵称
 

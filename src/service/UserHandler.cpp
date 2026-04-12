@@ -2,6 +2,7 @@
 #include "service/UserHandler.h"
 #include "service/UserService.h"
 #include "utils/Logger.h"
+#include "auth/TokenManager.h"
 
 using json = nlohmann::json;
 
@@ -81,29 +82,21 @@ void handleLogin(const HttpRequest& req, HttpResponse& resp) {
         std::string password = body["password"];
         std::string nickname;
 
-        int ret = UserService::loginUser(username, password, nickname);
-        if (ret > 0) {
+        std::string token = UserService::loginUser(username, password, nickname);
+        if (!token.empty()) {
             json respData;
             respData["code"] = 0;
             respData["msg"] = "Login success";
-            respData["user_id"] = ret;
-            respData["nickname"] = nickname.empty() ? username : nickname;
+            respData["token"] = token;
             resp.setStatusCode(200);
             resp.setBody(respData.dump());
-        } else if (ret == -1) {
-            json respData = {{"code", 401}, {"msg", "User not found"}};
-            resp.setStatusCode(401);
-            resp.setBody(respData.dump());
-        } else if (ret == -2) {
-            json respData = {{"code", 401}, {"msg", "Invalid password"}};
-            resp.setStatusCode(401);
-            resp.setBody(respData.dump());
         } else {
-            json respData = {{"code", 500}, {"msg", "Database error"}};
-            resp.setStatusCode(500);
+            // TODO：
+            // 登录失败：用户名或密码错误，或者数据库错误  暂且统一 401
+            json respData = {{"code", 401}, {"msg", "Invalid credentials"}};
+            resp.setStatusCode(401);
             resp.setBody(respData.dump());
         }
-        resp.setContentType("application/json");
     } catch (const json::parse_error& e) {
         resp.setStatusCode(400);
         resp.setBody(R"({"code":400,"msg":"Invalid JSON"})");
@@ -111,9 +104,27 @@ void handleLogin(const HttpRequest& req, HttpResponse& resp) {
     }
 }
 
+void handleLogout(const HttpRequest& req, HttpResponse& resp) {
+    // 从 Authorization 头获取 Token
+    std::string auth = req.getHeader("Authorization");
+    std::string token;
+    if (auth.find("Bearer ") == 0) {
+        token = auth.substr(7);
+    }
+    if (token.empty()) {
+        resp.setStatusCode(400);
+        resp.setBody(R"({"code":400,"msg":"Missing token"})");
+        resp.setContentType("application/json");
+        return;
+    }
+    TokenManager::removeToken(token);
+    json respData = {{"code", 0}, {"msg", "Logout success"}};
+    resp.setStatusCode(200);
+    resp.setBody(respData.dump());
+    resp.setContentType("application/json");
+}
+
 void handleGetUserInfo(const HttpRequest& req, HttpResponse& resp) {
-    // 简化：从请求参数中获取 user_id（实际应从 token 解析）
-    // 这里先简单支持通过查询参数 ?user_id=123
     if (req.getMethod() != HttpRequest::kGet) {
         resp.setStatusCode(405);
         resp.setBody(R"({"code":405,"msg":"Method Not Allowed"})");
@@ -121,21 +132,26 @@ void handleGetUserInfo(const HttpRequest& req, HttpResponse& resp) {
         return;
     }
 
-    // 解析查询参数（例如 /user/info?user_id=123）
-    std::string query = req.getQuery();
-    // 简单解析：假设格式为 "user_id=123"
-    size_t pos = query.find("user_id=");
-    if (pos == std::string::npos) {
-        resp.setStatusCode(400);
-        resp.setBody(R"({"code":400,"msg":"Missing user_id"})");
+    // 从 Authorization 头获取 Token
+    std::string auth = req.getHeader("Authorization");
+    std::string token;
+    if (auth.find("Bearer ") == 0) {
+        token = auth.substr(7);
+    }
+    if (token.empty()) {
+        resp.setStatusCode(401);
+        resp.setBody(R"({"code":401,"msg":"Missing or invalid token"})");
         resp.setContentType("application/json");
         return;
     }
-    std::string userIdStr = query.substr(pos + 8);
-    // 可能还有 & 后的参数，截取到 & 或结尾
-    size_t end = userIdStr.find('&');
-    if (end != std::string::npos) userIdStr = userIdStr.substr(0, end);
-    int userId = std::stoi(userIdStr);
+
+    int userId = TokenManager::verifyToken(token);
+    if (userId <= 0) {
+        resp.setStatusCode(401);
+        resp.setBody(R"({"code":401,"msg":"Invalid or expired token"})");
+        resp.setContentType("application/json");
+        return;
+    }
 
     std::string userJson = UserService::getUserInfoJson(userId);
     if (userJson == "{}") {

@@ -13,6 +13,7 @@
 #include "router/Router.h"
 #include "service/UserHandler.h"
 #include "db/MySQLConnectionPool.h"
+#include "auth/TokenManager.h"
 
 std::atomic<EventLoop*> g_loop(nullptr);
 std::unique_ptr<thread_pool::ThreadPool> g_threadPool;
@@ -27,6 +28,8 @@ void signalHandler(int sig) {
 int main() {
     AsyncLogger::getInstance().init("logs", "TcpServer.log");
     MySQLConnectionPool::getInstance().init("tcp://127.0.0.1:3306", "appuser", "Master@123456", "user_center", 3306, 5, 20);
+    TokenManager::init("127.0.0.1", 6379, 20);
+
     EventLoop loop;
     g_loop.store(&loop);
     signal(SIGINT, signalHandler);
@@ -40,6 +43,7 @@ int main() {
     router.addRoute("/user/register", HttpRequest::kPost, handleRegister);
     router.addRoute("/user/login", HttpRequest::kPost, handleLogin);
     router.addRoute("/user/info", HttpRequest::kGet, handleGetUserInfo);
+    router.addRoute("/user/logout", HttpRequest::kPost, handleLogout);
 
     server.setHttpRequestCallback([&router](const ConnectionPtr& conn, const HttpRequest& req){
         g_threadPool->Submit([conn, req, &router](){
@@ -84,4 +88,33 @@ int main() {
     dbTest();
 }
 
+#endif
+
+
+#if 0
+#include <iostream>
+#include <sw/redis++/redis++.h>
+
+int main() {
+    try {
+        // 创建Redis连接对象，格式为 tcp://host:port
+        auto redis = sw::redis::Redis("tcp://127.0.0.1:6379");
+        
+        // 发送PING命令测试连通性
+        auto pong = redis.ping();
+        std::cout << "Redis connection test: " << pong << std::endl;
+
+        // 简单的读写测试
+        redis.set("cpp_test_key", "hello_redis");
+        auto val = redis.get("cpp_test_key");
+        if (val) {
+            std::cout << "Read value: " << *val << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
 #endif
