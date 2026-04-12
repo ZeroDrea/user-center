@@ -1,7 +1,7 @@
 #!/bin/bash
 
 BASE_URL="http://127.0.0.1:8888"
-USERNAME="alice"
+USERNAME="bob"
 PASSWORD="123456"
 
 # 颜色输出

@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
+find_library(BCRYPT_LIBRARY NAMES bcrypt REQUIRED)
 
 # 手动查找 hiredis 和 redis++
 find_path(HIREDIS_INCLUDE_DIR NAMES hiredis/hiredis.h REQUIRED)
@@ -54,6 +55,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${REDISPP_LIBRARY}
     ${HIREDIS_LIBRARY}
     Threads::Threads
+    ${BCRYPT_LIBRARY}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

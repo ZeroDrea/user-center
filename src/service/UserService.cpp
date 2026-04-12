@@ -1,40 +1,43 @@
 #include "service/UserService.h"
 #include "db/MySQLConnectionPool.h"
-#include <openssl/sha.h>
+#include <openssl/rand.h>
 #include <random>
 #include <sstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include "auth/TokenManager.h"
+#include "bcrypt/BCrypt.hpp"
+#include <nlohmann/json.hpp>
+#include "utils/Logger.h"
+
+using json = nlohmann::json;
 
 
-
-// 生成简单的 UUID (v4 风格)
-static std::string generateUUID() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 15);
-    std::uniform_int_distribution<> dis2(8, 11);
-    std::stringstream ss;
-    for (int i = 0; i < 36; ++i) {
-        if (i == 8 || i == 13 || i == 18 || i == 23) ss << '-';
-        else if (i == 14) ss << std::hex << dis2(gen);
-        else ss << std::hex << dis(gen);
+std::string generateUUID() {
+    unsigned char uuid[16];  // 128位 = 16字节
+    if (RAND_bytes(uuid, sizeof(uuid)) != 1) {
+        // 降级：使用 std::random_device + mt19937
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(0, 255);
+        for (int i = 0; i < 16; ++i) {
+            uuid[i] = static_cast<unsigned char>(dis(gen));
+        }
     }
-    return ss.str();
-}
-
-// SHA256 哈希（暂时使用，后面换 bcrypt）
-static std::string sha256(const std::string& str) {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, str.c_str(), str.size());
-    SHA256_Final(hash, &sha256);
+    
+    // 设置版本号 (v4) -> 将第7字节的高4位设为 0100 (即 0x40)
+    uuid[6] = (uuid[6] & 0x0F) | 0x40;
+    // 设置变体位 -> 将第9字节的高2位设为 10 (即 0x80)
+    uuid[8] = (uuid[8] & 0x3F) | 0x80;
+    
+    // 格式化为标准 UUID 字符串
     std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
-        ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
+    ss << std::hex << std::setfill('0');
+    for (int i = 0; i < 16; ++i) {
+        ss << std::setw(2) << static_cast<int>(uuid[i]);
+        if (i == 3 || i == 5 || i == 7 || i == 9) ss << '-';
+    }
     return ss.str();
 }
 
@@ -67,7 +70,7 @@ int UserService::registerUser(
 
     // 生成 uuid 和密码哈希
     std::string uuid = generateUUID();
-    std::string passwordHash = sha256(password);
+    std::string passwordHash = BCrypt::generateHash(password, 12); // 成本因子 12
 
     // 插入 users 表
     auto pstmtInsert = conn->prepareStatement(
@@ -133,8 +136,7 @@ std::string UserService::loginUser(
     int userId = res->getInt("id");
     std::string storedHash = res->getString("password_hash");
 
-    // TODO：验证密码（此处使用 SHA256，后面使用 bcrypt 的验证函数）
-    if (sha256(password) != storedHash) {
+    if (!BCrypt::validatePassword(password, storedHash)) {
         // TODO：密码错误
         return "";
     }
@@ -158,6 +160,7 @@ std::string UserService::loginUser(
 std::string UserService::getUserInfoJson(int userId) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
+        LOG_ERROR("Failed to get MySQL connection");
         return "{}";
     }
 
@@ -167,26 +170,26 @@ std::string UserService::getUserInfoJson(int userId) {
         "FROM users u LEFT JOIN user_profiles p ON u.id = p.user_id "
         "WHERE u.id = ?");
     if (!pstmt) {
+        LOG_ERROR("Prepare statement failed");
         return "{}";
     }
     pstmt->setInt(1, userId);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (!res || !res->next()) {
+        LOG_DEBUG("No user found for userId=%d", userId);
         return "{}";
     }
 
-    // 构造 JSON 字符串（简单拼接，后续可用 nlohmann/json 简化）
-    std::string json = "{";
-    json += "\"uuid\":\"" + res->getString("uuid") + "\",";
-    json += "\"username\":\"" + res->getString("username") + "\",";
-    json += "\"email\":\"" + res->getString("email") + "\",";
-    json += "\"created_at\":\"" + res->getString("created_at") + "\",";
-    json += "\"nickname\":\"" + (res->isNull("nickname") ? "" : res->getString("nickname")) + "\",";
-    json += "\"avatar_url\":\"" + (res->isNull("avatar_url") ? "" : res->getString("avatar_url")) + "\",";
-    json += "\"bio\":\"" + (res->isNull("bio") ? "" : res->getString("bio")) + "\",";
-    json += "\"gender\":" + std::to_string(res->getInt("gender"));
-    json += "}";
-    return json;
+    json j;
+    j["uuid"] = res->getString("uuid");
+    j["username"] = res->getString("username");
+    j["email"] = res->getString("email");
+    j["created_at"] = res->getString("created_at");
+    j["nickname"] = res->isNull("nickname") ? "" : res->getString("nickname");
+    j["avatar_url"] = res->isNull("avatar_url") ? "" : res->getString("avatar_url");
+    j["bio"] = res->isNull("bio") ? "" : res->getString("bio");
+    j["gender"] = res->getInt("gender");
+    return j.dump();
 }
 
 bool UserService::isUsernameExist(const std::string& username) {
