@@ -280,3 +280,52 @@ bool UserService::updateProfile(int userId, const ProfileUpdate& update) {
         return false;
     }
 }
+
+bool UserService::changePassword(int userId, const std::string& oldPassword, const std::string& newPassword) {
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn) {
+        LOG_ERROR("Failed to get MySQL connection");
+        return false;
+    }
+
+    try {
+        auto pstmt = conn->prepareStatement("SELECT password_hash FROM users WHERE id = ?");
+        if (!pstmt) {
+            LOG_ERROR("Prepare statement failed");
+            return false;
+        }
+        pstmt->setInt(1, userId);
+        auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
+        if (!res || !res->next()) {
+            LOG_ERROR("User not found for userId=%d", userId);
+            return false;
+        }
+        std::string storedHash = res->getString("password_hash");
+        if (!BCrypt::validatePassword(oldPassword, storedHash)) {
+            LOG_WARN("Password mismatch for userId=%d", userId);
+            return false;
+        }
+
+        std::string newHash = BCrypt::generateHash(newPassword, 12);
+        auto updateStmt = conn->prepareStatement("UPDATE users SET password_hash = ? WHERE id = ?");
+        if (!updateStmt) {
+            LOG_ERROR("Prepare update statement failed");
+            return false;
+        }
+        updateStmt->setString(1, newHash);
+        updateStmt->setInt(2, userId);
+        int affected = updateStmt->executeUpdate();
+
+        if (affected > 0) {
+            LOG_INFO("Password changed for userId=%d", userId);
+            TokenManager::removeAllTokensForUser(userId);
+            return true;
+        } else {
+            LOG_WARN("No rows updated for userId=%d, password may be unchanged", userId);
+            return false;
+        }
+    } catch (const sql::SQLException& e) {
+        LOG_ERROR("MySQL error in changePassword: %s (errno: %d)", e.what(), e.getErrorCode());
+        return false;
+    }
+}

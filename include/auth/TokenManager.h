@@ -19,6 +19,8 @@ public:
     
     // 删除 Token（登出）
     static void removeToken(const std::string& token);
+
+    static void removeAllTokensForUser(int userId);
     
 private:
     static std::string getKey(const std::string& token);

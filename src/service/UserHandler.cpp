@@ -289,3 +289,53 @@ void handleUpdateProfile(const HttpRequest& req, HttpResponse& resp) {
     }
     resp.setContentType("application/json");
 }
+
+void handleChangePassword(const HttpRequest& req, HttpResponse& resp) {
+    if (req.getMethod() != HttpRequest::kPut) {
+        resp.setStatusCode(405);
+        resp.setBody(R"({"code":405,"msg":"Method Not Allowed"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    int userId = verifyToken(req, resp);
+    if (userId <= 0) return;
+
+    json body;
+    try {
+        body = json::parse(req.getBody());
+    } catch (const json::parse_error& e) {
+        resp.setStatusCode(400);
+        resp.setBody(R"({"code":400,"msg":"Invalid JSON"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    if (!body.contains("old_password") || !body["old_password"].is_string() ||
+        !body.contains("new_password") || !body["new_password"].is_string()) {
+        resp.setStatusCode(400);
+        resp.setBody(R"({"code":400,"msg":"Missing old_password or new_password"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    std::string oldPassword = body["old_password"];
+    std::string newPassword = body["new_password"];
+    if (newPassword.length() < 6) {
+        resp.setStatusCode(400);
+        resp.setBody(R"({"code":400,"msg":"Password too short"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    bool success = UserService::changePassword(userId, oldPassword, newPassword);
+    if (success) {
+        json respData = {{"code", 0}, {"msg", "Password changed successfully"}};
+        resp.setStatusCode(200);
+        resp.setBody(respData.dump());
+    } else {
+        resp.setStatusCode(401);
+        resp.setBody(R"({"code":401,"msg":"Invalid old password"})");
+    }
+    resp.setContentType("application/json");
+}

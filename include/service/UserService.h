@@ -33,6 +33,8 @@ public:
 
     static bool updateProfile(int userId, const ProfileUpdate& update);
 
+    static bool changePassword(int userId, const std::string& oldPassword, const std::string& newPassword);
+
 private:
     // 内部辅助函数：根据用户名获取用户 ID 和密码哈希
     static bool getUserByUsername(const std::string& username, int& userId, std::string& passwordHash);

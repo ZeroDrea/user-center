@@ -52,12 +52,15 @@ std::string TokenManager::createToken(int userId, int expireSeconds) {
     }
     std::string token = generateToken();
     std::string key = getKey(token);
-    bool ok = redis_->set(key, std::to_string(userId), std::chrono::seconds(expireSeconds));
-    if (ok) {
-        LOG_DEBUG("Token created for user %d, expires in %d s", userId, expireSeconds);
+    std::string setKey = "user_tokens:" + std::to_string(userId);
+    try {
+        redis_->setex(key, expireSeconds, std::to_string(userId));
+        redis_->sadd(setKey, token);
+        redis_->expire(setKey, expireSeconds);
+        LOG_INFO("Token created for user %d, expires in %d s", userId, expireSeconds);
         return token;
-    } else {
-        LOG_ERROR("set failed for user %d", userId);
+    } catch (const sw::redis::Error& e) {
+        LOG_ERROR("Failed to create token for user %d: %s", userId, e.what());
         return "";
     }
 }
@@ -97,12 +100,31 @@ void TokenManager::removeToken(const std::string& token) {
         auto val = redis_->get(key);
         if (val) {
             int userId = std::stoi(*val);
+            std::string setKey = "user_tokens:" + std::to_string(userId);
+            redis_->srem(setKey, token);
             redis_->del(key);
-            LOG_INFO("Token removed for user %d", userId);
-        } else {
-            LOG_DEBUG("Token removed fail: token not found or expired");
         }
     } catch (const Error& e) {
-        LOG_ERROR("Redis del error: %s", e.what());
+        LOG_ERROR("Failed to remove token: %s", e.what());
+    }
+}
+
+void TokenManager::removeAllTokensForUser(int userId) {
+    if (!redis_) {
+        LOG_ERROR("TokenManager not initialized");
+        return;
+    }
+
+    std::string setKey = "user_tokens:" + std::to_string(userId);
+    try {
+        std::vector<std::string> tokens;
+        redis_->smembers(setKey, std::back_inserter(tokens));
+        for (const auto& token : tokens) {
+            redis_->del(getKey(token));
+        }
+        redis_->del(setKey);
+        LOG_INFO("All tokens removed for user %d, count=%zu", userId, tokens.size());
+    } catch (const sw::redis::Error& e) {
+        LOG_ERROR("Redis error in removeAllTokensForUser: %s", e.what());
     }
 }
