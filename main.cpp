@@ -44,6 +44,8 @@ int main() {
     router.addRoute("/user/login", HttpRequest::kPost, handleLogin);
     router.addRoute("/user/info", HttpRequest::kGet, handleGetUserInfo);
     router.addRoute("/user/logout", HttpRequest::kPost, handleLogout);
+    router.addRoute("/user/profile", HttpRequest::kPut, handleUpdateProfile);
+    router.addRoute("/user/profile", HttpRequest::kPatch, handleUpdateProfile);
 
     server.setHttpRequestCallback([&router](const ConnectionPtr& conn, const HttpRequest& req){
         g_threadPool->Submit([conn, req, &router](){

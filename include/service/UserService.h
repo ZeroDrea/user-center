@@ -1,6 +1,17 @@
 #ifndef USER_SERVICE_H
 #define USER_SERVICE_H
 #include <string>
+#include <optional>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+
+struct ProfileUpdate {
+    std::optional<std::string> nickname;
+    std::optional<std::string> avatar_url;
+    std::optional<std::string> bio;
+    std::optional<int> gender;
+};
 
 class UserService {
 public:
@@ -15,10 +26,12 @@ public:
                          std::string& outNickname); // 可选输出昵称
 
     // 获取用户基本信息（JSON 字符串，供 Handler 使用）
-    static std::string getUserInfoJson(int userId);
+    static json getUserInfoJson(int userId);
 
     // 检查用户名是否存在
     static bool isUsernameExist(const std::string& username);
+
+    static bool updateProfile(int userId, const ProfileUpdate& update);
 
 private:
     // 内部辅助函数：根据用户名获取用户 ID 和密码哈希

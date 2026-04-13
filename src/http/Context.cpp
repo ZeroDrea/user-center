@@ -74,6 +74,7 @@ bool HttpContext::parseRequestLine(const char* begin, const char* end) {
     else if (methodStr == "PUT") method = HttpRequest::kPut;
     else if (methodStr == "DELETE") method = HttpRequest::kDelete;
     else if (methodStr == "HEAD") method = HttpRequest::kHead;
+    else if (methodStr == "PATCH") method = HttpRequest::kPatch;
     else return false;
     request_.setMethod(method);
     

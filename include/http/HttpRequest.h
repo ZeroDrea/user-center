@@ -6,7 +6,7 @@
 
 class HttpRequest {
 public:
-    enum Method { kInvalid, kGet, kPost, kPut, kDelete, kHead };
+    enum Method { kInvalid, kGet, kPost, kPut, kDelete, kHead, kPatch };
     
     void setMethod(Method method) { method_ = method; }
     void setPath(const std::string& path) { path_ = path; }

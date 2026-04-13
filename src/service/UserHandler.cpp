@@ -1,10 +1,31 @@
-#include <nlohmann/json.hpp>
 #include "service/UserHandler.h"
 #include "service/UserService.h"
 #include "utils/Logger.h"
 #include "auth/TokenManager.h"
 
-using json = nlohmann::json;
+static int verifyToken(const HttpRequest& req, HttpResponse& resp) {
+    std::string auth = req.getHeader("Authorization");
+    std::string token;
+    if (auth.find("Bearer ") == 0) {
+        token = auth.substr(7);
+    }
+
+    if (token.empty()) {
+        resp.setStatusCode(401);
+        resp.setBody(R"({"code":401,"msg":"Missing token"})");
+        resp.setContentType("application/json");
+        return -1;
+    }
+
+    int userId = TokenManager::verifyToken(token);
+    if (userId <= 0) {
+        resp.setStatusCode(401);
+        resp.setBody(R"({"code":401,"msg":"Invalid or expired token"})");
+        resp.setContentType("application/json");
+        return userId;
+    }
+    return userId;
+}
 
 void handleRegister(const HttpRequest& req, HttpResponse& resp) {
     LOG_DEBUG("Handle register request from %s", 
@@ -105,7 +126,6 @@ void handleLogin(const HttpRequest& req, HttpResponse& resp) {
 }
 
 void handleLogout(const HttpRequest& req, HttpResponse& resp) {
-    // 从 Authorization 头获取 Token
     std::string auth = req.getHeader("Authorization");
     std::string token;
     if (auth.find("Bearer ") == 0) {
@@ -132,34 +152,140 @@ void handleGetUserInfo(const HttpRequest& req, HttpResponse& resp) {
         return;
     }
 
-    // 从 Authorization 头获取 Token
-    std::string auth = req.getHeader("Authorization");
-    std::string token;
-    if (auth.find("Bearer ") == 0) {
-        token = auth.substr(7);
-    }
-    if (token.empty()) {
-        resp.setStatusCode(401);
-        resp.setBody(R"({"code":401,"msg":"Missing or invalid token"})");
-        resp.setContentType("application/json");
-        return;
-    }
-
-    int userId = TokenManager::verifyToken(token);
+    int userId = verifyToken(req, resp);
     if (userId <= 0) {
-        resp.setStatusCode(401);
-        resp.setBody(R"({"code":401,"msg":"Invalid or expired token"})");
-        resp.setContentType("application/json");
         return;
     }
 
-    std::string userJson = UserService::getUserInfoJson(userId);
-    if (userJson == "{}") {
+    auto userJson = UserService::getUserInfoJson(userId);
+    if (userJson.is_null() || userJson.empty()) {
         resp.setStatusCode(404);
         resp.setBody(R"({"code":404,"msg":"User not found"})");
     } else {
         resp.setStatusCode(200);
-        resp.setBody(userJson);
+        resp.setBody(userJson.dump());
+    }
+    resp.setContentType("application/json");
+}
+
+static bool getUpdateProfile(const json& body, HttpResponse& resp, ProfileUpdate& update) {
+    if (body.contains("nickname")) {
+        if (!body["nickname"].is_string()) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"nickname must be string"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        std::string val = body["nickname"];
+        if (val.length() > 64) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"Nickname too long"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        update.nickname = val;
+    }
+
+    if (body.contains("avatar_url")) {
+        if (!body["avatar_url"].is_string()) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"avatar_url must be string"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        std::string val = body["avatar_url"];
+        if (val.length() > 256) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"Avatar URL too long"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        update.avatar_url = val;
+    }
+
+    if (body.contains("bio")) {
+        if (!body["bio"].is_string()) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"bio must be string"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        std::string val = body["bio"];
+        if (val.length() > 500) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"Bio too long"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        update.bio = val;
+    }
+
+    if (body.contains("gender")) {
+        if (!body["gender"].is_number_integer()) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"gender must be integer"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        int val = body["gender"];
+        if (val < 0 || val > 2) {
+            resp.setStatusCode(400);
+            resp.setBody(R"({"code":400,"msg":"Gender must be 0,1,2"})");
+            resp.setContentType("application/json");
+            return false;
+        }
+        update.gender = val;
+    }
+    return true;    
+}
+
+void handleUpdateProfile(const HttpRequest& req, HttpResponse& resp) {
+    if (req.getMethod() != HttpRequest::kPut && req.getMethod() != HttpRequest::kPatch) {
+        resp.setStatusCode(405);
+        resp.setBody(R"({"code":405,"msg":"Method Not Allowed"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    int userId = verifyToken(req, resp);
+    if (userId <= 0) return;
+
+    json body;
+    try {
+        body = json::parse(req.getBody());
+    } catch (const json::parse_error& e) {
+        resp.setStatusCode(400);
+        resp.setBody(R"({"code":400,"msg":"Invalid JSON"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    ProfileUpdate update;
+    if(!getUpdateProfile(body, resp, update)) {
+        return;
+    }
+    
+    // 至少有一个字段需要更新
+    if (!update.nickname.has_value() && !update.avatar_url.has_value() &&
+        !update.bio.has_value() && !update.gender.has_value()) {
+        resp.setStatusCode(400);
+        resp.setBody(R"({"code":400,"msg":"No fields to update"})");
+        resp.setContentType("application/json");
+        return;
+    }
+
+    bool success = UserService::updateProfile(userId, update);
+    if (success) {
+        json userJson = UserService::getUserInfoJson(userId);
+        json respData;
+        respData["code"] = 0;
+        respData["msg"] = "Profile updated successfully";
+        respData["data"] = userJson;
+        resp.setStatusCode(200);
+        resp.setBody(respData.dump());
+    } else {
+        resp.setStatusCode(500);
+        resp.setBody(R"({"code":500,"msg":"Database error"})");
     }
     resp.setContentType("application/json");
 }

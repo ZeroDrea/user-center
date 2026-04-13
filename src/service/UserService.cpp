@@ -8,11 +8,7 @@
 #include <memory>
 #include "auth/TokenManager.h"
 #include "bcrypt/BCrypt.hpp"
-#include <nlohmann/json.hpp>
 #include "utils/Logger.h"
-
-using json = nlohmann::json;
-
 
 std::string generateUUID() {
     unsigned char uuid[16];  // 128位 = 16字节
@@ -157,7 +153,7 @@ std::string UserService::loginUser(
     return token;
 }
 
-std::string UserService::getUserInfoJson(int userId) {
+json UserService::getUserInfoJson(int userId) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
         LOG_ERROR("Failed to get MySQL connection");
@@ -189,7 +185,7 @@ std::string UserService::getUserInfoJson(int userId) {
     j["avatar_url"] = res->isNull("avatar_url") ? "" : res->getString("avatar_url");
     j["bio"] = res->isNull("bio") ? "" : res->getString("bio");
     j["gender"] = res->getInt("gender");
-    return j.dump();
+    return j;
 }
 
 bool UserService::isUsernameExist(const std::string& username) {
@@ -223,4 +219,64 @@ bool UserService::getUserByUsername(const std::string& username, int& userId, st
         return true;
     }
     return false;
+}
+
+bool UserService::updateProfile(int userId, const ProfileUpdate& update) {
+    auto conn = MySQLConnectionPool::getInstance().getConnection();
+    if (!conn || !conn->isConnected()) {
+        LOG_ERROR("Failed to get MySQL connection");
+        return false;
+    }
+
+    std::vector<std::string> fields;
+    if (update.nickname.has_value()) fields.push_back("nickname");
+    if (update.avatar_url.has_value()) fields.push_back("avatar_url");
+    if (update.bio.has_value()) fields.push_back("bio");
+    if (update.gender.has_value()) fields.push_back("gender");
+
+    if (fields.empty()) return true;
+
+    std::string setClause;
+    for (size_t i = 0; i < fields.size(); ++i) {
+        if (i != 0) setClause += ", ";
+        setClause += fields[i] + " = ?";
+    }
+
+    std::string sql = "INSERT INTO user_profiles (user_id, nickname, avatar_url, bio, gender) "
+                  "VALUES (?, ?, ?, ?, ?) "
+                  "ON DUPLICATE KEY UPDATE " + setClause;
+
+    auto pstmt = conn->prepareStatement(sql);
+    if (!pstmt) {
+        LOG_ERROR("Prepare statement failed");
+        return false;
+    }
+
+    int idx = 1;
+    pstmt->setInt(idx++, userId);
+    pstmt->setString(idx++, update.nickname.has_value() ? *update.nickname : "");
+    pstmt->setString(idx++, update.avatar_url.has_value() ? *update.avatar_url : "");
+    pstmt->setString(idx++, update.bio.has_value() ? *update.bio : "");
+    pstmt->setInt(idx++, update.gender.has_value() ? *update.gender : 0);
+
+    for (const auto& field : fields) {
+        if (field == "nickname") {
+            pstmt->setString(idx++, *update.nickname);
+        } else if (field == "avatar_url") {
+            pstmt->setString(idx++, *update.avatar_url);
+        } else if (field == "bio") {
+            pstmt->setString(idx++, *update.bio);
+        } else if (field == "gender") {
+            pstmt->setInt(idx++, *update.gender);
+        }
+    }
+
+    try {
+        int affected = pstmt->executeUpdate();
+        LOG_INFO("Profile updated for userId=%d, affected rows=%d", userId, affected);
+        return true;
+    } catch (const sql::SQLException& e) {
+        LOG_ERROR("MySQL error: %s (errno: %d)", e.what(), e.getErrorCode());
+        return false;
+    }
 }
