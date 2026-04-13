@@ -26,9 +26,8 @@ for i in $(seq $START $END); do
         -H "Content-Type: application/json" \
         -d "{\"username\":\"$USERNAME\",\"password\":\"$PASSWORD\"}")
     
-    # 解析 token（响应为 {"code":0,"msg":"Login success","token":"..."}）
-    TOKEN=$(echo "$RESPONSE" | jq -r '.token')
-    CODE=$(echo "$RESPONSE" | jq -r '.code // 1')
+    CODE=$(echo "$RESPONSE" | jq -r '.code')
+    TOKEN=$(echo "$RESPONSE" | jq -r '.data.token')
     
     if [ "$CODE" == "0" ] && [ "$TOKEN" != "null" ] && [ -n "$TOKEN" ]; then
         echo -e "${GREEN}✓ 登录成功: $USERNAME -> Token: ${TOKEN:0:32}...${NC}"
@@ -37,6 +36,7 @@ for i in $(seq $START $END); do
         echo -e "${RED}✗ 登录失败: $USERNAME (响应: $RESPONSE)${NC}"
     fi
     
+    # 可选：避免过快请求
     sleep 0.1
 done
 

@@ -1,8 +1,10 @@
 #ifndef USER_SERVICE_H
 #define USER_SERVICE_H
+
 #include <string>
 #include <optional>
 #include <nlohmann/json.hpp>
+#include "common/ErrorCode.h"
 
 using json = nlohmann::json;
 
@@ -15,28 +17,36 @@ struct ProfileUpdate {
 
 class UserService {
 public:
-    // 注册：返回 0 成功，1 用户名或邮箱已存在，2 数据库错误
-    static int registerUser(const std::string& username,
-                            const std::string& password,
-                            const std::string& email);
+    // 注册
+    static ErrorCode registerUser(const std::string& username,
+                                  const std::string& password,
+                                  const std::string& email);
 
-    // 登录：返回用户 ID（>0 表示成功），-1 表示用户名不存在，-2 表示密码错误，-3 数据库错误
-    static std::string loginUser(const std::string& username,
-                         const std::string& password,
-                         std::string& outNickname); // 可选输出昵称
+    // 登录：成功时 token 和 nickname 通过输出参数返回
+    static ErrorCode loginUser(const std::string& username,
+                               const std::string& password,
+                               std::string& outToken,
+                               std::string& outNickname);
 
-    // 获取用户基本信息（JSON 字符串，供 Handler 使用）
-    static json getUserInfoJson(int userId);
+    // 获取用户信息：成功时 json 通过输出参数返回
+    static ErrorCode getUserInfoJson(int userId, json& outJson);
 
-    // 检查用户名是否存在
-    static bool isUsernameExist(const std::string& username);
+    // 检查用户名是否存在（可用于注册前验证）
+    static ErrorCode checkUsernameExist(const std::string& username, bool& exists);
 
-    static bool updateProfile(int userId, const ProfileUpdate& update);
+    // 更新用户资料
+    static ErrorCode updateProfile(int userId, const ProfileUpdate& update);
 
-    static bool changePassword(int userId, const std::string& oldPassword, const std::string& newPassword);
+    // 修改密码
+    static ErrorCode changePassword(int userId,
+                                    const std::string& oldPassword,
+                                    const std::string& newPassword);
 
 private:
-    // 内部辅助函数：根据用户名获取用户 ID 和密码哈希
-    static bool getUserByUsername(const std::string& username, int& userId, std::string& passwordHash);
+    // 内部辅助函数
+    static ErrorCode getUserByUsername(const std::string& username,
+                                       int& userId,
+                                       std::string& passwordHash);
 };
+
 #endif // USER_SERVICE_H

@@ -37,31 +37,25 @@ std::string generateUUID() {
     return ss.str();
 }
 
-int UserService::registerUser(
-    const std::string& username,
-    const std::string& password,
-    const std::string& email) {
+ErrorCode UserService::registerUser(const std::string& username, const std::string& password, const std::string& email) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
-        return 2; // 数据库错误
+        return ErrorCode::DatabaseError;
     }
 
-    // 开启事务
     conn->executeUpdate("START TRANSACTION");
-
-    // 检查用户名或邮箱是否存在
     auto pstmtCheck = conn->prepareStatement(
         "SELECT id FROM users WHERE username = ? OR email = ?");
     if (!pstmtCheck) {
         conn->executeUpdate("ROLLBACK");
-        return 2;
+        return ErrorCode::DatabaseError;
     }
     pstmtCheck->setString(1, username);
     pstmtCheck->setString(2, email);
     auto res = std::unique_ptr<sql::ResultSet>(pstmtCheck->executeQuery());
     if (res && res->next()) {
         conn->executeUpdate("ROLLBACK");
-        return 1; // 用户名或邮箱已存在
+        return ErrorCode::UserExists;
     }
 
     // 生成 uuid 和密码哈希
@@ -74,7 +68,7 @@ int UserService::registerUser(
         "VALUES (?, ?, ?, ?, 1, 'user')");
     if (!pstmtInsert) {
         conn->executeUpdate("ROLLBACK");
-        return 2;
+        return ErrorCode::DatabaseError;
     }
     pstmtInsert->setString(1, uuid);
     pstmtInsert->setString(2, username);
@@ -83,7 +77,7 @@ int UserService::registerUser(
     int affected = pstmtInsert->executeUpdate();
     if (affected <= 0) {
         conn->executeUpdate("ROLLBACK");
-        return 2;
+        return ErrorCode::DatabaseError;
     }
 
     uint64_t userId = conn->getLastInsertId();
@@ -93,48 +87,44 @@ int UserService::registerUser(
         "INSERT INTO user_profiles (user_id) VALUES (?)");
     if (!pstmtProfile) {
         conn->executeUpdate("ROLLBACK");
-        return 2;
+        return ErrorCode::DatabaseError;
     }
     pstmtProfile->setUInt64(1, userId);
     if (pstmtProfile->executeUpdate() <= 0) {
         conn->executeUpdate("ROLLBACK");
-        return 2;
+        return ErrorCode::DatabaseError;
     }
 
     // 提交事务
     conn->executeUpdate("COMMIT");
-    return 0;
+    return ErrorCode::Success;
 }
 
-std::string UserService::loginUser(
-    const std::string& username,
-    const std::string& password,
-    std::string& outNickname) {
+ErrorCode UserService::loginUser(const std::string& username,
+                                 const std::string& password,
+                                 std::string& outToken,
+                                 std::string& outNickname) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
-        // TODO：数据库错误
-        return "";
+        return ErrorCode::DatabaseError;
     }
     
     auto pstmt = conn->prepareStatement(
         "SELECT id, password_hash FROM users WHERE username = ?");
     if (!pstmt) {
-        // TODO：数据库错误
-        return "";
+        return ErrorCode::DatabaseError;
     }
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (!res || !res->next()) {
-        // TODO：用户名不存在
-        return "";
+        return ErrorCode::InvalidCredentials;
     }
 
     int userId = res->getInt("id");
     std::string storedHash = res->getString("password_hash");
 
     if (!BCrypt::validatePassword(password, storedHash)) {
-        // TODO：密码错误
-        return "";
+        return ErrorCode::InvalidCredentials;
     }
 
     auto pstmtNick = conn->prepareStatement(
@@ -145,19 +135,19 @@ std::string UserService::loginUser(
         if (nickRes && nickRes->next()) {
             outNickname = nickRes->getString("nickname");
         }
+    } else {
+        LOG_WARN("mysql select nickname fail, username = %s", username.c_str());
     }
 
-    // TODO：
-    // 更新最后登录时间和 IP（IP 在 Handler 中更新，这里先不更新）
-    std::string token = TokenManager::createToken(userId);
-    return token;
+    outToken = TokenManager::createToken(userId);
+    return ErrorCode::Success;
 }
 
-json UserService::getUserInfoJson(int userId) {
+ErrorCode UserService::getUserInfoJson(int userId, json& outJson) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
         LOG_ERROR("Failed to get MySQL connection");
-        return "{}";
+        return ErrorCode::DatabaseError;
     }
 
     auto pstmt = conn->prepareStatement(
@@ -167,65 +157,74 @@ json UserService::getUserInfoJson(int userId) {
         "WHERE u.id = ?");
     if (!pstmt) {
         LOG_ERROR("Prepare statement failed");
-        return "{}";
+        return ErrorCode::DatabaseError;
     }
     pstmt->setInt(1, userId);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (!res || !res->next()) {
         LOG_DEBUG("No user found for userId=%d", userId);
-        return "{}";
+        return ErrorCode::UserNotFound;
     }
 
-    json j;
-    j["uuid"] = res->getString("uuid");
-    j["username"] = res->getString("username");
-    j["email"] = res->getString("email");
-    j["created_at"] = res->getString("created_at");
-    j["nickname"] = res->isNull("nickname") ? "" : res->getString("nickname");
-    j["avatar_url"] = res->isNull("avatar_url") ? "" : res->getString("avatar_url");
-    j["bio"] = res->isNull("bio") ? "" : res->getString("bio");
-    j["gender"] = res->getInt("gender");
-    return j;
+    outJson["uuid"] = res->getString("uuid");
+    outJson["username"] = res->getString("username");
+    outJson["email"] = res->getString("email");
+    outJson["created_at"] = res->getString("created_at");
+    outJson["nickname"] = res->isNull("nickname") ? "" : res->getString("nickname");
+    outJson["avatar_url"] = res->isNull("avatar_url") ? "" : res->getString("avatar_url");
+    outJson["bio"] = res->isNull("bio") ? "" : res->getString("bio");
+    outJson["gender"] = res->getInt("gender");
+    return ErrorCode::Success;;
 }
 
-bool UserService::isUsernameExist(const std::string& username) {
+ErrorCode UserService::checkUsernameExist(const std::string& username, bool& exists) {
+    exists = false;
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
-        return false;
+        return ErrorCode::DatabaseError;
     }
     auto pstmt = conn->prepareStatement("SELECT id FROM users WHERE username = ?");
     if (!pstmt) {
-        return false;
+        return ErrorCode::DatabaseError;
     }
+
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
-    return (res && res->next());
+    if (!res) {
+        return ErrorCode::DatabaseError;
+    }
+    if (res->next()) {
+        exists = true;
+    }
+    return ErrorCode::Success;
 }
 
-bool UserService::getUserByUsername(const std::string& username, int& userId, std::string& passwordHash) {
+ErrorCode UserService::getUserByUsername(const std::string& username,
+                                       int& userId,
+                                       std::string& passwordHash) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
-        return false;
+        return ErrorCode::DatabaseError;
     }
     auto pstmt = conn->prepareStatement("SELECT id, password_hash FROM users WHERE username = ?");
     if (!pstmt) {
-        return false;
+        return ErrorCode::DatabaseError;
     }
     pstmt->setString(1, username);
     auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
     if (res && res->next()) {
         userId = res->getInt("id");
         passwordHash = res->getString("password_hash");
-        return true;
+        return ErrorCode::Success;
     }
-    return false;
+    return ErrorCode::UserNotFound;
 }
 
-bool UserService::updateProfile(int userId, const ProfileUpdate& update) {
+ErrorCode UserService::updateProfile(int userId, const ProfileUpdate& update) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
         LOG_ERROR("Failed to get MySQL connection");
-        return false;
+        return ErrorCode::DatabaseError;
     }
 
     std::vector<std::string> fields;
@@ -234,7 +233,9 @@ bool UserService::updateProfile(int userId, const ProfileUpdate& update) {
     if (update.bio.has_value()) fields.push_back("bio");
     if (update.gender.has_value()) fields.push_back("gender");
 
-    if (fields.empty()) return true;
+    if (fields.empty()) {
+        return ErrorCode::Success;
+    }
 
     std::string setClause;
     for (size_t i = 0; i < fields.size(); ++i) {
@@ -249,7 +250,7 @@ bool UserService::updateProfile(int userId, const ProfileUpdate& update) {
     auto pstmt = conn->prepareStatement(sql);
     if (!pstmt) {
         LOG_ERROR("Prepare statement failed");
-        return false;
+        return ErrorCode::DatabaseError;
     }
 
     int idx = 1;
@@ -274,43 +275,45 @@ bool UserService::updateProfile(int userId, const ProfileUpdate& update) {
     try {
         int affected = pstmt->executeUpdate();
         LOG_INFO("Profile updated for userId=%d, affected rows=%d", userId, affected);
-        return true;
+        return ErrorCode::Success;
     } catch (const sql::SQLException& e) {
         LOG_ERROR("MySQL error: %s (errno: %d)", e.what(), e.getErrorCode());
-        return false;
+        return ErrorCode::DatabaseError;
     }
 }
 
-bool UserService::changePassword(int userId, const std::string& oldPassword, const std::string& newPassword) {
+ErrorCode UserService::changePassword(int userId,
+                                    const std::string& oldPassword,
+                                    const std::string& newPassword) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn) {
         LOG_ERROR("Failed to get MySQL connection");
-        return false;
+        return ErrorCode::DatabaseError;
     }
 
     try {
         auto pstmt = conn->prepareStatement("SELECT password_hash FROM users WHERE id = ?");
         if (!pstmt) {
             LOG_ERROR("Prepare statement failed");
-            return false;
+            return ErrorCode::DatabaseError;;
         }
         pstmt->setInt(1, userId);
         auto res = std::unique_ptr<sql::ResultSet>(pstmt->executeQuery());
         if (!res || !res->next()) {
             LOG_ERROR("User not found for userId=%d", userId);
-            return false;
+            return ErrorCode::UserNotFound;
         }
         std::string storedHash = res->getString("password_hash");
         if (!BCrypt::validatePassword(oldPassword, storedHash)) {
             LOG_WARN("Password mismatch for userId=%d", userId);
-            return false;
+            return ErrorCode::InvalidCredentials;
         }
 
         std::string newHash = BCrypt::generateHash(newPassword, 12);
         auto updateStmt = conn->prepareStatement("UPDATE users SET password_hash = ? WHERE id = ?");
         if (!updateStmt) {
             LOG_ERROR("Prepare update statement failed");
-            return false;
+            return ErrorCode::DatabaseError;
         }
         updateStmt->setString(1, newHash);
         updateStmt->setInt(2, userId);
@@ -319,13 +322,13 @@ bool UserService::changePassword(int userId, const std::string& oldPassword, con
         if (affected > 0) {
             LOG_INFO("Password changed for userId=%d", userId);
             TokenManager::removeAllTokensForUser(userId);
-            return true;
+            return ErrorCode::Success;
         } else {
-            LOG_WARN("No rows updated for userId=%d, password may be unchanged", userId);
-            return false;
+            LOG_INFO("Password unchanged (same as old) for userId=%d", userId);
+            return ErrorCode::Success;
         }
     } catch (const sql::SQLException& e) {
         LOG_ERROR("MySQL error in changePassword: %s (errno: %d)", e.what(), e.getErrorCode());
-        return false;
+        return ErrorCode::DatabaseError;
     }
 }
