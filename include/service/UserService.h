@@ -30,6 +30,7 @@ public:
 
     // 获取用户信息：成功时 json 通过输出参数返回
     static ErrorCode getUserInfoJson(int userId, json& outJson);
+    static ErrorCode getUserInfoJsonFromDB(int userId, json& outJson);
 
     // 检查用户名是否存在（可用于注册前验证）
     static ErrorCode checkUsernameExist(const std::string& username, bool& exists);

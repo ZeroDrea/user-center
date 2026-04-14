@@ -2,6 +2,7 @@
 #include "db/MySQLConnectionPool.h"
 #include <openssl/rand.h>
 #include <random>
+#include <chrono>
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -144,6 +145,59 @@ ErrorCode UserService::loginUser(const std::string& username,
 }
 
 ErrorCode UserService::getUserInfoJson(int userId, json& outJson) {
+    auto redis = TokenManager::getRedis();
+    std::string cacheKey = "user:info:" + std::to_string(userId);
+    if (redis) {
+        try {
+            auto cached = redis->get(cacheKey);
+            if (cached) {
+                if (*cached == "null") {
+                    return ErrorCode::UserNotFound;
+                }
+
+                outJson = json::parse(*cached);
+                LOG_DEBUG("Cache hit for userId=%d", userId);
+                return ErrorCode::Success;
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("Redis get error: %s, fallback to MySQL", e.what());
+        }
+    }
+
+    // 缓存为命中
+    ErrorCode errCode = getUserInfoJsonFromDB(userId, outJson);
+    if (errCode != ErrorCode::Success) {
+        if (errCode == ErrorCode::UserNotFound) {
+            if (redis) {
+                try {
+                    redis->setex(cacheKey, 60, "null");
+                } catch (const std::exception& e) {
+                    LOG_WARN("Redis setex error: %s", e.what());
+                }
+            }
+        }
+        return errCode;
+    }
+
+    // 写入 Redis 缓存（TTL 1小时 + 随机偏移，防止雪崩）
+    if (redis) {
+        try {
+            std::string jsonStr = outJson.dump();
+            // 基础过期时间 3600 秒，加上 0~300 秒随机偏移
+            thread_local std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+            std::uniform_int_distribution<int> dist(0, 300);
+            int ttl = 3600 + dist(rng);
+            redis->setex(cacheKey, ttl, jsonStr);
+            LOG_DEBUG("Cache set for userId=%d, ttl=%d", userId, ttl);
+        } catch (const std::exception& e) {
+            LOG_WARN("Redis setex error: %s", e.what());
+        }
+
+    }
+    return ErrorCode::Success;
+}
+
+ErrorCode UserService::getUserInfoJsonFromDB(int userId, json& outJson) {
     auto conn = MySQLConnectionPool::getInstance().getConnection();
     if (!conn || !conn->isConnected()) {
         LOG_ERROR("Failed to get MySQL connection");
@@ -154,7 +208,8 @@ ErrorCode UserService::getUserInfoJson(int userId, json& outJson) {
         "SELECT u.uuid, u.username, u.email, u.created_at, "
         "p.nickname, p.avatar_url, p.bio, p.gender "
         "FROM users u LEFT JOIN user_profiles p ON u.id = p.user_id "
-        "WHERE u.id = ?");
+        "WHERE u.id = ?"
+    );
     if (!pstmt) {
         LOG_ERROR("Prepare statement failed");
         return ErrorCode::DatabaseError;
@@ -174,7 +229,7 @@ ErrorCode UserService::getUserInfoJson(int userId, json& outJson) {
     outJson["avatar_url"] = res->isNull("avatar_url") ? "" : res->getString("avatar_url");
     outJson["bio"] = res->isNull("bio") ? "" : res->getString("bio");
     outJson["gender"] = res->getInt("gender");
-    return ErrorCode::Success;;
+    return ErrorCode::Success;
 }
 
 ErrorCode UserService::checkUsernameExist(const std::string& username, bool& exists) {
