@@ -14,6 +14,9 @@
 #include "service/UserHandler.h"
 #include "db/MySQLConnectionPool.h"
 #include "auth/TokenManager.h"
+#include "common/RateLimiter.h"
+#include "common/ErrorCode.h"
+#include "common/ResponseHelper.h"
 
 std::atomic<EventLoop*> g_loop(nullptr);
 std::unique_ptr<thread_pool::ThreadPool> g_threadPool;
@@ -49,6 +52,18 @@ int main() {
     router.addRoute("/user/password", HttpRequest::kPut, handleChangePassword);
 
     server.setHttpRequestCallback([&router](const ConnectionPtr& conn, const HttpRequest& req){
+
+        // 在I/O线程中提前限流
+        std::string ip = conn->peerAddr().toIp();
+        if (ip.empty()) ip = "unknown";
+        // 先只做ip限流
+        if (!RateLimiter::isAllowed(ip, 60, 60)) {
+            HttpResponse resp;
+            ResponseHelper::sendError(resp, ErrorCode::RateLimitExceeded, "Too many requests", 429);
+            conn->send(resp.serialize());
+            return;
+        }
+
         g_threadPool->Submit([conn, req, &router](){
             HttpResponse resp;
             router.dispatch(req, resp);

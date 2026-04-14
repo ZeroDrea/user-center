@@ -3,6 +3,7 @@
 
 enum class ErrorCode {
     Success = 0,                // 操作成功
+    RateLimitExceeded = 429,    // 请求过于频繁
 
     InvalidJSON = 1001,         // 请求体不是合法的 JSON 格式
     MissingParam = 1002,        // 缺少必要的参数（如 username、password 等）
@@ -29,6 +30,7 @@ enum class ErrorCode {
 inline const char* getErrorMessage(ErrorCode code) {
     switch (code) {
         case ErrorCode::Success: return "success";
+        case ErrorCode::RateLimitExceeded: return "Too many requests, please slow down";
         case ErrorCode::InvalidJSON: return "Invalid JSON format";
         case ErrorCode::MissingParam: return "Missing required parameter";
         case ErrorCode::ParamTooLong: return "Parameter too long";

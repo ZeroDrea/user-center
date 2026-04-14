@@ -3,8 +3,7 @@
 
 #include <string>
 #include <memory>
-
-namespace sw { namespace redis { class Redis; } }
+#include <sw/redis++/redis++.h>
 
 class TokenManager {
 public:
@@ -21,6 +20,8 @@ public:
     static void removeToken(const std::string& token);
 
     static void removeAllTokensForUser(int userId);
+
+    static std::shared_ptr<sw::redis::Redis> getRedis() { return redis_; }
     
 private:
     static std::string getKey(const std::string& token);
