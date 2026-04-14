@@ -6,6 +6,8 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
+#include "net/TimerQueue.h"
+#include "utils/Logger.h"
 
 class EpollPoller;
 class Channel;
@@ -83,6 +85,15 @@ public:
      */
     void queueInLoop(Functor cb);
 
+    void runAfter(int milliseconds, TimerQueue::TimerCallback cb) {
+        timerQueue_->runAfter(milliseconds, std::move(cb));
+    }
+
+    void runEvery(int interval, TimerQueue::TimerCallback cb) {
+        LOG_DEBUG("Idle check running");
+        timerQueue_->runEvery(interval, std::move(cb));
+    }
+
 private:
     // 唤醒 EventLoop 线程（向 eventfd 写入数据）
     void wakeup();
@@ -111,6 +122,8 @@ private:
     std::vector<Functor> pendingFunctors_;   // 待执行的任务列表
     mutable std::mutex mutex_;               // 保护 pendingFunctors_ 的互斥锁
     bool callingPendingFunctors_;   // 是否正在执行 pending functors
+
+    std::unique_ptr<TimerQueue> timerQueue_;
 };
 
 #endif // NET_EVENTLOOP_H

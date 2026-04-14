@@ -19,7 +19,8 @@ Connection::Connection(EventLoop* loop, int fd, const InetAddr& peerAddr)
     : loop_(loop),
       fd_(fd),
       channel_(new Channel(loop, fd)),
-      peerAddr_(peerAddr) {
+      peerAddr_(peerAddr),
+      lastActiveTime_(std::chrono::steady_clock::now()) {
     // 设置 Channel 的回调函数
     channel_->setReadCallback([this]() { handleRead(); });
     channel_->setWriteCallback([this]() { handleWrite(); });
@@ -79,19 +80,20 @@ void Connection::handleRead() {
         LOG_ERROR("Connection::handleRead error: %s", strerror(savedErrno));
         handleError();
         return;
-    } else if (n == 0) {
+    } else if (n == 0) { // 对端关闭
         LOG_DEBUG("Connection::handleRead read 0");
-        handleClose();   // 对端关闭
+        handleClose();
         return;
     }
     LOG_DEBUG("Connection::handleRead fd: %d.",fd_);
+    updateActiveTime();
     // 使用状态机解析 inputBuffer_
     bool complete = httpContext_.parse(&inputBuffer_);
     if (httpContext_.isError()) {
         // 解析失败，发送 400 并关闭连接
         LOG_ERROR("httpContext fail, fd: %d.", fd_);
         sendErrorResponse(400);
-        shutdown();
+        handleError();
         return;
     }
     if (complete) {
@@ -126,6 +128,7 @@ void Connection::handleWrite() {
         handleError();
         return;
     }
+    updateActiveTime();
     outputBuffer_.retrieve(static_cast<size_t>(n));
     if (outputBuffer_.readableBytes() == 0) {  // 写完了，取消写事件
         channel_->disableWriting();
@@ -162,6 +165,7 @@ void Connection::sendInLoop(const std::string& message) {
                 handleError();
             }
         } else {
+            updateActiveTime();
             outputBuffer_.retrieve(static_cast<size_t>(n));
             if (outputBuffer_.readableBytes() > 0) {
                 // 没有全部写完，注册写事件
@@ -177,8 +181,30 @@ void Connection::removeConnection() {
     // 注意：此时应该停止 Channel 的事件监听，并关闭 fd
     channel_->disableAll();
     channel_->remove();
-    if (fd_ >= 0) {
-        ::close(fd_);
-        fd_ = -1;  // 用于析构函数防御
+    ::close(fd_);
+}
+
+void Connection::updateActiveTime() {
+    lastActiveTime_ = std::chrono::steady_clock::now();
+}
+
+void Connection::forceClose() {
+    loop_->runInLoop([this]() {
+        // 触发关闭回调，通知 TcpServer 清理
+        if (closeCallback_) {
+            closeCallback_(shared_from_this());
+        }
+    });
+}
+
+void Connection::checkIdleTimeout(int timeoutSeconds) {
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActiveTime_).count();
+    LOG_DEBUG("fd=%d, elapsed=%lld, timeout=%d", fd_, (long long)elapsed, timeoutSeconds);
+    if (elapsed >= timeoutSeconds) {
+        LOG_DEBUG("idle timeout, fd = %d", fd_);
+        loop_->runAfter(0, [self = shared_from_this()]() {
+            self->forceClose();
+        });
     }
 }

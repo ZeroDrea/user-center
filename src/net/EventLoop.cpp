@@ -33,7 +33,8 @@ EventLoop::EventLoop()
       threadId_(getThreadId()),
       quit_(false),
       looping_(false),
-      callingPendingFunctors_(false) {
+      callingPendingFunctors_(false),
+      timerQueue_(new TimerQueue(this)) {
     // 设置唤醒通道的读回调，并启用读事件
     wakeupChannel_->setReadCallback([this]() { handleWakeup(); });
     wakeupChannel_->enableReading();

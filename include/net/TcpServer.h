@@ -52,6 +52,9 @@ public:
 
     /// 设置消息到达回调（当收到完整消息时调用）
     void setHttpRequestCallback(HttpRequestCallback cb) { httpRequestCallback_ = std::move(cb); }
+    
+    // 检查所有连接的空闲
+    void checkIdleConnections(int idleSeconds);
 
 private:
     // 新连接到达时的回调（由 Acceptor 调用）

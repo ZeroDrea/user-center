@@ -30,10 +30,14 @@ TcpServer::~TcpServer() {
 }
 
 void TcpServer::start() {
-    LOG_INFO("TcpServer [%s] starting on %s", 
-             name_.c_str(), acceptor_->listenAddr().toIpPort().c_str());
+    LOG_INFO("TcpServer [%s] starting on %s", name_.c_str(), acceptor_->listenAddr().toIpPort().c_str());
     // Acceptor 已经在构造函数中开始监听，这里不需要额外操作
-    // 但可以打印日志或启动定时器等
+    
+    // 启动定时器
+    loop_->runEvery(5000, [this]() {
+        LOG_INFO("Idle check running (should be periodic)");
+        checkIdleConnections(30); // 每 5 秒检查一次空闲连接
+    });
 }
 
 void TcpServer::onNewConnection(int clientFd, const InetAddr& peerAddr) {
@@ -47,7 +51,9 @@ void TcpServer::onNewConnection(int clientFd, const InetAddr& peerAddr) {
     });
     
     // 保存到映射表
+    LOG_DEBUG("onNewConnection: before insert, connections size=%zu", connections_.size());
     connections_[clientFd] = conn;
+    LOG_DEBUG("onNewConnection: after insert, connections size=%zu", connections_.size());
     LOG_INFO("TcpServer: new connection from %s, fd=%d, total connections=%zu",
              peerAddr.toIpPort().c_str(), clientFd, connections_.size());
 }
@@ -60,5 +66,19 @@ void TcpServer::onConnectionClosed(const ConnectionPtr& conn) {
         LOG_INFO("TcpServer: connection fd=%d closed, remaining connections=%zu",
                  fd, connections_.size());
     }
-    // conn 会在 shared_ptr 引用计数归零时自动销毁
+    conn->removeConnection();
+}
+
+void TcpServer::checkIdleConnections(int idleSeconds) {
+    std::cout << "checkIdleConnections called, size=" << connections_.size() << std::endl;
+    // 收集所有连接（避免遍历过程中容器被修改）
+    std::vector<ConnectionPtr> conns;
+    conns.reserve(connections_.size());
+    for (auto& pair : connections_) {
+        std::cout << "  fd=" << pair.first << std::endl;
+        conns.push_back(pair.second);
+    }
+    for (auto& conn : conns) {
+        conn->checkIdleTimeout(idleSeconds);
+    }
 }

@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <chrono>
 #include "utils/Buffer.h"
 #include "InetAddr.h"
 #include "http/HttpRequest.h"
@@ -57,6 +58,11 @@ public:
 
     EventLoop* getLoop() const { return loop_; }
 
+    void checkIdleTimeout(int timeoutSeconds);
+
+    // 将当前连接从 TcpServer 中移除
+    void removeConnection();
+
 private:
     /**
      * 构造函数
@@ -77,8 +83,9 @@ private:
     // 实际发送函数（必须在 I/O 线程中执行）
     void sendInLoop(const std::string& message);
 
-    // 将当前连接从 TcpServer 中移除（触发 closeCallback_）
-    void removeConnection();
+    void updateActiveTime();
+
+    void forceClose();
 
     EventLoop* loop_;                 // 所属的 EventLoop
     int fd_;                          // socket 文件描述符
@@ -91,6 +98,7 @@ private:
     CloseCallback   closeCallback_;   // 关闭回调（通知 TcpServer）
     ErrorCallback   errorCallback_;   // 错误回调（可选）
     HttpContext httpContext_;          // 解析状态机
+    std::chrono::steady_clock::time_point lastActiveTime_;  // 最后一次活动时间
 };
 
 using ConnectionPtr = std::shared_ptr<Connection>;

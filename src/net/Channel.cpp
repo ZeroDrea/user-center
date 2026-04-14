@@ -13,16 +13,6 @@ Channel::Channel(EventLoop* loop, int fd)
       inEpoll_(false) {
 }
 
-Channel::~Channel() {
-    if (inEpoll_) {
-        loop_->removeChannel(this);
-        if (fd_ >= 0) {
-            LOG_DEBUG("close fd: %d success.", fd_);
-            ::close(fd_);
-        }
-    }
-}
-
 void Channel::remove() {
     if (inEpoll_) {
         loop_->removeChannel(this);

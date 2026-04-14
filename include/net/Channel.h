@@ -22,7 +22,7 @@ public:
      * @param fd   要封装的文件描述符（非阻塞）
      */
     Channel(EventLoop* loop, int fd);
-    ~Channel();
+    ~Channel() = default;
 
     // 通知 EventLoop 移除当前 Channel
     void remove();

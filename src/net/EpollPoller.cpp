@@ -15,9 +15,11 @@ EpollPoller::EpollPoller()
         LOG_ERROR("epoll_create1 failed: %s", strerror(errno));
         ::abort();
     }
+    LOG_DEBUG("create epoll fd = %d success", epollfd_);
 }
 
 EpollPoller::~EpollPoller() {
+    LOG_DEBUG("close epoll fd = %d success", epollfd_);
     ::close(epollfd_);
 }
 
