@@ -19,17 +19,19 @@ public:
         resp.setContentType("application/json");
     }
 
-    static void sendError(HttpResponse& resp, ErrorCode code, int httpStatus = 400) {
-        json j;
-        j["code"] = static_cast<int>(code);
-        j["msg"] = getErrorMessage(code);
-        resp.setStatusCode(httpStatus);
-        resp.setBody(j.dump());
-        resp.setContentType("application/json");
+    static void sendError(HttpResponse& resp, ErrorCode code) {
+        sendError(resp, code, getErrorMessage(code), httpStatusFromErrorCode(code));
     }
 
-    // 重载：自定义错误消息
-    static void sendError(HttpResponse& resp, ErrorCode code, const std::string& customMsg, int httpStatus = 400) {
+    static void sendError(HttpResponse& resp, ErrorCode code, const std::string& customMsg) {
+        sendError(resp, code, customMsg, httpStatusFromErrorCode(code));
+    }
+
+    static void sendError(HttpResponse& resp, ErrorCode code, int httpStatus) {
+        sendError(resp, code, getErrorMessage(code), httpStatus);
+    }
+
+    static void sendError(HttpResponse& resp, ErrorCode code, const std::string& customMsg, int httpStatus) {
         json j;
         j["code"] = static_cast<int>(code);
         j["msg"] = customMsg;

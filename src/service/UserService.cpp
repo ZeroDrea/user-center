@@ -330,6 +330,15 @@ ErrorCode UserService::updateProfile(int userId, const ProfileUpdate& update) {
     try {
         int affected = pstmt->executeUpdate();
         LOG_INFO("Profile updated for userId=%d, affected rows=%d", userId, affected);
+        
+        // 删除 Redis 缓存
+        auto redis = TokenManager::getRedis();
+        if (redis) {
+            std::string cacheKey = "user:info:" + std::to_string(userId);
+            redis->del(cacheKey);
+            LOG_DEBUG("Deleted cache key: %s", cacheKey.c_str());
+        }
+        
         return ErrorCode::Success;
     } catch (const sql::SQLException& e) {
         LOG_ERROR("MySQL error: %s (errno: %d)", e.what(), e.getErrorCode());

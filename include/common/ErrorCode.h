@@ -52,4 +52,31 @@ inline const char* getErrorMessage(ErrorCode code) {
     }
 }
 
+
+// 将 ErrorCode 转换为 HTTP 状态码
+inline int httpStatusFromErrorCode(ErrorCode code) {
+    switch (code) {
+        case ErrorCode::Success: return 200;
+        case ErrorCode::RateLimitExceeded: return 429;
+        case ErrorCode::InvalidJSON: return 400;
+        case ErrorCode::MissingParam: return 400;
+        case ErrorCode::ParamTooLong: return 400;
+        case ErrorCode::ParamInvalid: return 400;
+        case ErrorCode::MethodNotAllowed: return 405;
+        case ErrorCode::InvalidCredentials: return 401;
+        case ErrorCode::Unauthorized: return 401;
+        case ErrorCode::TokenMissing: return 401;
+        case ErrorCode::TokenExpired: return 401;
+        case ErrorCode::TokenInvalid: return 401;
+        case ErrorCode::OldPasswordWrong: return 401;
+        case ErrorCode::UserNotFound: return 404;
+        case ErrorCode::UserExists: return 409;
+        case ErrorCode::PermissionDenied: return 403;
+        case ErrorCode::DatabaseError: return 500;
+        case ErrorCode::RedisError: return 500;
+        case ErrorCode::InternalError: return 500;
+        default: return 500;
+    }
+}
+
 #endif

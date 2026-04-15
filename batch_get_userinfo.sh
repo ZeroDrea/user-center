@@ -32,9 +32,9 @@ while IFS= read -r line; do
     # 发送请求获取用户信息
     RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" "$BASE_URL/user/info")
     
-    # 判断返回是否包含 uuid（简单判断成功）
-    if echo "$RESPONSE" | grep -q '"uuid"'; then
-        NICKNAME=$(echo "$RESPONSE" | jq -r '.nickname // .username')
+    CODE=$(echo "$RESPONSE" | jq -r '.code')
+    if [ "$CODE" == "0" ]; then
+        NICKNAME=$(echo "$RESPONSE" | jq -r '.data.nickname // .data.username')
         echo -e "${GREEN}✓ $USERNAME -> 昵称: $NICKNAME${NC}"
     else
         echo -e "${RED}✗ $USERNAME 获取失败 (响应: $RESPONSE)${NC}"
