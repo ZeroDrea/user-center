@@ -7,15 +7,16 @@
 #include <cerrno>
 #include "utils/Logger.h"
 
-TimerQueue::TimerQueue(EventLoop* loop) :
-    loop_(loop),
-    timerFd_(::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)),
-    timerChannel_(new Channel(loop, timerFd_)) {
+TimerQueue::TimerQueue(EventLoop* loop)
+    : loop_(loop),
+      timerFd_(::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)),
+      timerChannel_(std::make_unique<Channel>(loop, timerFd_)) {
     if (timerFd_ < 0) {
         LOG_ERROR("timerfd_create failed: %s", strerror(errno));
-        abort();
+        ::abort();
     }
-    timerChannel_->setReadCallback([this](){ handleRead(); });
+
+    timerChannel_->setReadCallback([this]() { handleRead(); });
     timerChannel_->enableReading();
 }
 
@@ -26,77 +27,73 @@ TimerQueue::~TimerQueue() {
 }
 
 void TimerQueue::runAfter(int milliseconds, TimerCallback cb) {
-    addTimerInLoop(milliseconds, std::move(cb), false);
+    // 保证线程安全：必须在 IO 线程执行
+    loop_->runInLoop([this, milliseconds, cb = std::move(cb)]() mutable {
+        addTimerInLoop(milliseconds, std::move(cb), false);
+    });
 }
 
 void TimerQueue::runEvery(int interval, TimerCallback cb) {
-    addTimerInLoop(interval, std::move(cb), true);
+    loop_->runInLoop([this, interval, cb = std::move(cb)]() mutable {
+        addTimerInLoop(interval, std::move(cb), true);
+    });
 }
 
 void TimerQueue::addTimerInLoop(int milliseconds, TimerCallback cb, bool repeat) {
-    LOG_INFO("addTimerInLoop: ms=%d, repeat=%d", milliseconds, repeat);
-    loop_->runInLoop([this, milliseconds, cb = std::move(cb), repeat](){
-        auto expire = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
-        timers_.push({expire, repeat ? milliseconds : 0, std::move(cb)});
-        resetTimerFd();
-    });
+    TimePoint expire = Clock::now() + std::chrono::milliseconds(milliseconds);
+    timers_.push({expire, repeat ? milliseconds : 0, std::move(cb)});
+    resetTimerFd();
 }
 
 void TimerQueue::resetTimerFd() {
     if (timers_.empty()) {
-        LOG_INFO("resetTimerFd: timers empty, disarm timer");
         struct itimerspec disarm = {};
-        timerfd_settime(timerFd_, 0, &disarm, nullptr);
+        if (::timerfd_settime(timerFd_, TFD_TIMER_ABSTIME, &disarm, nullptr) < 0) {
+            LOG_ERROR("timerfd_settime fail: %s", strerror(errno));
+            ::abort();
+        }
         return;
     }
-
-    auto now = std::chrono::steady_clock::now();
-    auto diff = timers_.top().expireTime - now;
-    int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(diff).count();
-    LOG_INFO("resetTimerFd: top expire = %lld, now = %lld, diff ms = %lld", 
-         (long long)timers_.top().expireTime.time_since_epoch().count(),
-         (long long)now.time_since_epoch().count(),
-         (long long)ms);
-    if (ms < 0) {
-        ms = 0;
-    }
+    auto expireTime = timers_.top().expireTime;
     struct itimerspec newValue = {};
-    newValue.it_value.tv_sec = ms / 1000; // 取秒
-    newValue.it_value.tv_nsec = (ms % 1000) * 1000000;  // 取纳秒
-    timerfd_settime(timerFd_, 0, &newValue, nullptr);
+    auto sec = std::chrono::duration_cast<std::chrono::seconds>(
+        expireTime.time_since_epoch());
+    auto nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        expireTime.time_since_epoch() - sec);
+    newValue.it_value.tv_sec = sec.count();
+    newValue.it_value.tv_nsec = nsec.count();
+    if (::timerfd_settime(timerFd_, TFD_TIMER_ABSTIME, &newValue, nullptr) < 0) {
+        LOG_ERROR("timerfd_settime fail: %s", strerror(errno));
+        ::abort();
+    }
+    return;
 }
 
 void TimerQueue::handleRead() {
-    LOG_INFO("TimerQueue::handleRead triggered");
-    uint64_t exp = 0;
-    LOG_INFO("handleRead: timers_.size() before = %zu", timers_.size());
+    uint64_t exp;
     ssize_t n = ::read(timerFd_, &exp, sizeof(exp));
     if (n != sizeof(exp)) {
-        LOG_WARN("timerfd read error: %s", strerror(errno));
+        LOG_WARN("TimerQueue::handleRead read error: %s", strerror(errno));
         return;
     }
 
-    auto now = std::chrono::steady_clock::now();
+    TimePoint now = Clock::now();
     std::vector<TimerCallback> toRun;
-
     while (!timers_.empty() && timers_.top().expireTime <= now) {
-    auto node = timers_.top();
-    timers_.pop();
-    LOG_INFO("handleRead: pop node expire = %lld, now = %lld", 
-             (long long)node.expireTime.time_since_epoch().count(),
-             (long long)now.time_since_epoch().count());
-    toRun.push_back(node.callback);
-    if (node.intervalMs > 0) {
-        node.expireTime = now + std::chrono::milliseconds(node.intervalMs);
-        LOG_INFO("handleRead: reinsert node expire = %lld", 
-                 (long long)node.expireTime.time_since_epoch().count());
-        timers_.push(std::move(node));
+        auto node = timers_.top();
+        timers_.pop();
+        if (node.intervalMs > 0) {
+            toRun.push_back(node.callback);
+            auto missed = (now - node.expireTime) / std::chrono::milliseconds(node.intervalMs); // 可能已经超了好几个周期
+            node.expireTime += (missed + 1) * std::chrono::milliseconds(node.intervalMs);
+            timers_.push(std::move(node));
+        } else {
+            toRun.push_back(std::move(node.callback));
+        }
     }
-}
     resetTimerFd();
 
     for (auto& cb : toRun) {
         cb();
     }
 }
-

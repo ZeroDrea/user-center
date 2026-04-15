@@ -200,7 +200,6 @@ void Connection::forceClose() {
 void Connection::checkIdleTimeout(int timeoutSeconds) {
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastActiveTime_).count();
-    LOG_DEBUG("fd=%d, elapsed=%lld, timeout=%d", fd_, (long long)elapsed, timeoutSeconds);
     if (elapsed >= timeoutSeconds) {
         LOG_DEBUG("idle timeout, fd = %d", fd_);
         loop_->runAfter(0, [self = shared_from_this()]() {
