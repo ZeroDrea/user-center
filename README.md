@@ -200,18 +200,19 @@ curl -X POST http://127.0.0.1:8888/user/logout \
   -H "Authorization: Bearer $TOKEN"
 
 ## 项目结构
-.
-├── include/           # 头文件
-│   ├── auth/          # Token 管理
-│   ├── common/        # 错误码、响应辅助
-│   ├── db/            # MySQL 连接池
-│   ├── http/          # HTTP 请求/响应、解析器
-│   ├── net/           # EventLoop、Channel、Connection、TcpServer
-│   ├── router/        # 路由器
-│   ├── service/       # 业务逻辑（UserService）
-│   └── utils/         # 日志等工具
-├── src/               # 源文件（对应子目录）
-└── CMakeLists.txt
+.  
+├── include/           # 头文件  
+│   ├── auth/          # Token 管理  
+│   ├── common/        # 错误码、响应辅助  
+│   ├── db/            # MySQL 连接池  
+│   ├── http/          # HTTP 请求/响应、解析器  
+│   ├── net/           # EventLoop、Channel、Connection、TcpServer  
+│   ├── router/        # 路由器  
+│   ├── service/       # 业务逻辑（UserService）  
+│   ├── threadpool/    # 线程池   
+│   └── utils/         # 日志等工具  
+├── src/               # 源文件（对应子目录）  
+└── CMakeLists.txt  
 
 ## 设计模式
 1. Reactor 模式：EventLoop + Channel 处理 I/O 事件
